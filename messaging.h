@@ -135,5 +135,6 @@ void display_users(SharedMemory *shm);
 void display_groups(SharedMemory *shm);
 const char* get_timestamp_str(time_t timestamp);
 void clear_screen(void);
+void log_event(FILE *logfile, const char *event_type, const char *details);
 
 #endif // MESSAGING_H

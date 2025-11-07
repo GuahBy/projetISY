@@ -70,3 +70,17 @@ const char* get_timestamp_str(time_t timestamp) {
 void clear_screen(void) {
     printf("\033[2J\033[1;1H");
 }
+
+void log_event(FILE *logfile, const char *event_type, const char *details) {
+    if (logfile == NULL) {
+        return;
+    }
+
+    time_t now = time(NULL);
+    struct tm *tm_info = localtime(&now);
+    char timestamp[64];
+    strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", tm_info);
+
+    fprintf(logfile, "[%s] [%s] %s\n", timestamp, event_type, details);
+    fflush(logfile);
+}
