@@ -7,26 +7,33 @@ static int g_shmid = -1;
 static int g_semid = -1;
 static SharedMemory *g_shm = NULL;
 static int g_sockfd = -1;
+static FILE *g_logfile = NULL;
 
 void cleanup_and_exit(int signum) {
     printf("\n\nArrêt du serveur...\n");
-    
+
+    if (g_logfile != NULL) {
+        log_event(g_logfile, "SERVER", "Arrêt du serveur");
+        fclose(g_logfile);
+        g_logfile = NULL;
+    }
+
     if (g_sockfd >= 0) {
         close(g_sockfd);
     }
-    
+
     if (g_shm != NULL) {
         shm_detach(g_shm);
     }
-    
+
     if (g_shmid >= 0) {
         shm_destroy(g_shmid);
     }
-    
+
     if (g_semid >= 0) {
         sem_destroy(g_semid);
     }
-    
+
     printf("Nettoyage terminé\n");
     exit(0);
 }
@@ -39,6 +46,8 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
     printf("[DEBUG HANDLER] Message Type: %d, De: %s (%s:%d)\n",
            msg->type, msg->sender, ip_str, ntohs(client_addr->sin_port));
 
+    char log_buffer[512];
+
     // Verrouiller l'accès à la mémoire partagée
     sem_p(semid);
 
@@ -49,47 +58,59 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             if (user == NULL) {
                 user_add(shm, msg->sender, client_addr, ntohs(client_addr->sin_port));
             }
-            
+
             // Créer le groupe s'il n'existe pas
             Group *group = group_find(shm, msg->group);
             if (group == NULL) {
                 group_create(shm, msg->group);
             }
-            
+
             // Ajouter l'utilisateur au groupe
             group_add_user(shm, msg->group, msg->sender);
-            
+
             // Diffuser le message de join au groupe
             message_send_to_group(sockfd, shm, msg);
-            
+
             printf(">>> %s a rejoint %s\n", msg->sender, msg->group);
+            snprintf(log_buffer, sizeof(log_buffer), "%s a rejoint le groupe %s (%s:%d)",
+                    msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+            log_event(g_logfile, "JOIN", log_buffer);
             break;
         }
         
         case MSG_LEAVE: {
             // Retirer l'utilisateur du groupe
             group_remove_user(shm, msg->group, msg->sender);
-            
+
             // Diffuser le message de leave au groupe
             message_send_to_group(sockfd, shm, msg);
-            
+
             printf(">>> %s a quitté %s\n", msg->sender, msg->group);
+            snprintf(log_buffer, sizeof(log_buffer), "%s a quitté le groupe %s",
+                    msg->sender, msg->group);
+            log_event(g_logfile, "LEAVE", log_buffer);
             break;
         }
         
         case MSG_PUBLIC: {
             // Diffuser le message public au groupe
             message_send_to_group(sockfd, shm, msg);
-            
+
             printf(">>> [%s] %s: %s\n", msg->group, msg->sender, msg->content);
+            snprintf(log_buffer, sizeof(log_buffer), "[%s] %s: %s",
+                    msg->group, msg->sender, msg->content);
+            log_event(g_logfile, "PUBLIC", log_buffer);
             break;
         }
         
         case MSG_PRIVATE: {
             // Envoyer le message privé
             if (message_send_private(sockfd, shm, msg) == 0) {
-                printf(">>> [PRIVÉ] %s -> %s: %s\n", 
+                printf(">>> [PRIVÉ] %s -> %s: %s\n",
                        msg->sender, msg->recipient, msg->content);
+                snprintf(log_buffer, sizeof(log_buffer), "%s -> %s: %s",
+                        msg->sender, msg->recipient, msg->content);
+                log_event(g_logfile, "PRIVATE", log_buffer);
             }
             break;
         }
@@ -98,10 +119,13 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             // Créer un nouveau groupe
             if (group_create(shm, msg->content) >= 0) {
                 printf(">>> Groupe %s créé par %s\n", msg->content, msg->sender);
-                
+                snprintf(log_buffer, sizeof(log_buffer), "Groupe %s créé par %s",
+                        msg->content, msg->sender);
+                log_event(g_logfile, "CREATE_GROUP", log_buffer);
+
                 // Envoyer confirmation à l'utilisateur
                 Message response;
-                message_create(&response, MSG_CREATE_GROUP, "Serveur", 
+                message_create(&response, MSG_CREATE_GROUP, "Serveur",
                              msg->sender, NULL, msg->content);
                 User *user = user_find(shm, msg->sender);
                 if (user != NULL) {
@@ -117,13 +141,16 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             if (sscanf(msg->content, "%[^:]:%s", group1, group2) == 2) {
                 if (group_merge(shm, group1, group2) == 0) {
                     printf(">>> Groupes %s et %s fusionnés\n", group1, group2);
-                    
+                    snprintf(log_buffer, sizeof(log_buffer), "Groupes %s et %s fusionnés par %s",
+                            group1, group2, msg->sender);
+                    log_event(g_logfile, "MERGE_GROUPS", log_buffer);
+
                     // Notifier tous les utilisateurs concernés
                     Message notification;
                     char notif_content[MAX_MESSAGE];
-                    snprintf(notif_content, MAX_MESSAGE, 
+                    snprintf(notif_content, MAX_MESSAGE,
                             "Les groupes %s et %s ont été fusionnés", group1, group2);
-                    message_create(&notification, MSG_PUBLIC, "Serveur", 
+                    message_create(&notification, MSG_PUBLIC, "Serveur",
                                  NULL, group1, notif_content);
                     message_send_to_group(sockfd, shm, &notification);
                 }
@@ -134,6 +161,8 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
         case MSG_DISCONNECT: {
             user_remove(shm, msg->sender);
             printf(">>> %s s'est déconnecté\n", msg->sender);
+            snprintf(log_buffer, sizeof(log_buffer), "%s s'est déconnecté", msg->sender);
+            log_event(g_logfile, "DISCONNECT", log_buffer);
             break;
         }
         
@@ -153,14 +182,24 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
 
 int main(int argc, char **argv) {
     int port = PORT_BASE;
-    
+
     if (argc > 1) {
         port = atoi(argv[1]);
     }
-    
+
     printf("=== SERVEUR DE MESSAGERIE ===\n");
     printf("Port: %d\n\n", port);
-    
+
+    // Ouvrir le fichier de log
+    g_logfile = fopen("server.log", "a");
+    if (g_logfile == NULL) {
+        perror("Erreur lors de l'ouverture du fichier de log");
+        fprintf(stderr, "Le serveur continuera sans logging\n");
+    } else {
+        log_event(g_logfile, "SERVER", "Démarrage du serveur");
+        printf("Fichier de log: server.log\n");
+    }
+
     // Installer le gestionnaire de signal
     signal(SIGINT, cleanup_and_exit);
     signal(SIGTERM, cleanup_and_exit);
@@ -226,9 +265,13 @@ int main(int argc, char **argv) {
     // Configurer le socket en mode non-bloquant
     int flags = fcntl(g_sockfd, F_GETFL, 0);
     fcntl(g_sockfd, F_SETFL, flags | O_NONBLOCK);
-    
+
     printf("\nServeur en écoute...\n\n");
-    
+
+    char log_buffer[256];
+    snprintf(log_buffer, sizeof(log_buffer), "Serveur en écoute sur le port %d", port);
+    log_event(g_logfile, "SERVER", log_buffer);
+
     // Boucle principale
     Message msg;
     struct sockaddr_in client_addr;

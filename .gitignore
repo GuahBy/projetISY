@@ -11,6 +11,9 @@ client
 shm_key.txt
 sem_key.txt
 
+# Fichiers de logs
+server.log
+
 # Fichiers de débogage
 *.dSYM/
 *.su
