@@ -379,6 +379,78 @@ Ces fichiers sont créés automatiquement au premier lancement.
 - Vérifiez que le destinataire est connecté (`/users`)
 - Vérifiez les logs du serveur pour voir les erreurs
 
+### Problèmes de communication réseau (VirtualBox)
+
+Si vous utilisez VirtualBox et que le serveur ne reçoit pas les messages du client :
+
+**Symptômes :**
+- Le client affiche "Demande de création du groupe..." mais rien ne se passe côté serveur
+- Le client affiche "Tentative de connexion au groupe..." mais ne rejoint pas
+- Aucun log ne s'affiche côté serveur
+
+**Logs de débogage :**
+
+Le système inclut maintenant des logs détaillés pour diagnostiquer les problèmes :
+- `[DEBUG SEND]` : Affiche chaque envoi de message (type, expéditeur, destination)
+- `[DEBUG RECV]` : Affiche chaque réception de message (taille, source, type)
+- `[DEBUG HANDLER]` : Affiche chaque message traité par le serveur
+
+**Étapes de diagnostic :**
+
+1. **Vérifier la configuration réseau VirtualBox**
+   ```bash
+   # Sur la machine serveur, vérifier l'IP
+   ip addr show
+
+   # Sur la machine client, tester la connectivité
+   ping 192.168.217.174
+   ```
+
+2. **Vérifier que le serveur écoute bien**
+   ```bash
+   # Sur la machine serveur, après avoir démarré le serveur
+   netstat -uln | grep 8000
+   # Devrait afficher: 0.0.0.0:8000
+   ```
+
+3. **Tester avec un client local d'abord**
+   ```bash
+   # Sur la machine serveur
+   ./server 8000
+
+   # Dans un autre terminal sur la même machine
+   ./client testuser localhost 8000
+   /create test
+   ```
+
+   Si cela fonctionne, le problème vient de la configuration réseau VirtualBox.
+
+4. **Vérifier le pare-feu**
+   ```bash
+   # Désactiver temporairement le pare-feu pour tester
+   sudo ufw disable
+   # Ou autoriser le port UDP 8000
+   sudo ufw allow 8000/udp
+   ```
+
+5. **Configurer VirtualBox en mode "Bridged Adapter"**
+   - Dans les paramètres de la VM, onglet "Réseau"
+   - Changez "NAT" en "Accès par pont" (Bridged Adapter)
+   - Redémarrez la VM et notez la nouvelle IP
+
+**Solutions possibles :**
+
+- **Mode réseau VirtualBox :**
+  - Utilisez "Bridged Adapter" pour que la VM soit sur le même réseau que l'hôte
+  - Évitez "NAT" qui peut bloquer les connexions UDP entrantes
+
+- **Firewall :**
+  - Assurez-vous que le port UDP 8000 est ouvert sur les deux machines
+
+- **Tester en local d'abord :**
+  - Lancez serveur et client sur la même machine avec `localhost`
+  - Si cela fonctionne, le problème est réseau, pas le code
+
 ---
 
 ## 📚 Documentation supplémentaire
