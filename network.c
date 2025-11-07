@@ -31,12 +31,6 @@ int socket_bind_udp(int sockfd, int port) {
 ssize_t socket_send(int sockfd, Message *msg, struct sockaddr_in *dest_addr) {
     socklen_t len = sizeof(*dest_addr);
 
-    // Log de débogage
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(dest_addr->sin_addr), ip_str, INET_ADDRSTRLEN);
-    printf("[DEBUG SEND] Type: %d, De: %s, Vers: %s:%d\n",
-           msg->type, msg->sender, ip_str, ntohs(dest_addr->sin_port));
-
     ssize_t n = sendto(sockfd, msg, sizeof(Message), 0,
                        (struct sockaddr *)dest_addr, len);
 
@@ -45,7 +39,6 @@ ssize_t socket_send(int sockfd, Message *msg, struct sockaddr_in *dest_addr) {
         return -1;
     }
 
-    printf("[DEBUG SEND] %zd octets envoyés\n", n);
     return n;
 }
 
@@ -61,12 +54,6 @@ ssize_t socket_receive(int sockfd, Message *msg, struct sockaddr_in *src_addr) {
         }
         return -1;
     }
-
-    // Log de débogage
-    char ip_str[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &(src_addr->sin_addr), ip_str, INET_ADDRSTRLEN);
-    printf("[DEBUG RECV] %zd octets reçus de %s:%d, Type: %d, De: %s\n",
-           n, ip_str, ntohs(src_addr->sin_port), msg->type, msg->sender);
 
     return n;
 }
