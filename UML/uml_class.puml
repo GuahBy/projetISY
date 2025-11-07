@@ -1,0 +1,154 @@
+@startuml class_diagram
+!theme plain
+
+skinparam classAttributeIconSize 0
+
+enum MessageType {
+    MSG_PUBLIC
+    MSG_PRIVATE
+    MSG_JOIN
+    MSG_LEAVE
+    MSG_LIST_USERS
+    MSG_LIST_GROUPS
+    MSG_CREATE_GROUP
+    MSG_MERGE_GROUPS
+    MSG_CHANGE_COLOR
+    MSG_DISCONNECT
+}
+
+class Message {
+    - type: MessageType
+    - sender[MAX_USERNAME]: char
+    - recipient[MAX_USERNAME]: char
+    - group[MAX_GROUP_NAME]: char
+    - content[MAX_MESSAGE]: char
+    - timestamp: time_t
+    --
+    + message_create()
+    + message_display()
+    + message_send_to_group()
+    + message_send_private()
+}
+
+class User {
+    - username[MAX_USERNAME]: char
+    - current_group[MAX_GROUP_NAME]: char
+    - addr: sockaddr_in
+    - port: int
+    - active: int
+    - color[16]: char
+    - last_activity: time_t
+    --
+    + user_add()
+    + user_remove()
+    + user_find()
+    + user_set_color()
+}
+
+class Group {
+    - name[MAX_GROUP_NAME]: char
+    - user_count: int
+    - users[MAX_CLIENTS][MAX_USERNAME]: char
+    - active: int
+    --
+    + group_create()
+    + group_add_user()
+    + group_remove_user()
+    + group_find()
+    + group_merge()
+}
+
+class SharedMemory {
+    - users[MAX_CLIENTS]: User
+    - groups[MAX_GROUPS]: Group
+    - user_count: int
+    - group_count: int
+    --
+    + shm_create()
+    + shm_attach()
+    + shm_detach()
+    + shm_destroy()
+}
+
+class Semaphore {
+    - semid: int
+    - value: int
+    --
+    + sem_create()
+    + sem_init()
+    + sem_p()
+    + sem_v()
+    + sem_destroy()
+}
+
+class Socket {
+    - sockfd: int
+    - addr: sockaddr_in
+    - port: int
+    --
+    + socket_create_udp()
+    + socket_bind_udp()
+    + socket_send()
+    + socket_receive()
+}
+
+class Server {
+    - shm: SharedMemory*
+    - semid: int
+    - sockfd: int
+    --
+    + main()
+    + handle_client_message()
+    + cleanup_and_exit()
+}
+
+class Client {
+    - sockfd: int
+    - username[MAX_USERNAME]: char
+    - current_group[MAX_GROUP_NAME]: char
+    - user_color[16]: char
+    - server_addr: sockaddr_in
+    --
+    + main()
+    + receive_thread()
+    + process_command()
+    + cleanup_and_exit()
+}
+
+SharedMemory "1" *-- "0..MAX_CLIENTS" User
+SharedMemory "1" *-- "0..MAX_GROUPS" Group
+Group "1" o-- "0..MAX_CLIENTS" User : contains
+
+Message ..> User : sender/recipient
+Message ..> Group : group
+
+Server ..> SharedMemory : uses
+Server ..> Semaphore : uses
+Server ..> Socket : uses
+Server ..> Message : processes
+
+Client ..> Socket : uses
+Client ..> Message : sends/receives
+Client ..> SharedMemory : reads
+
+Semaphore ..> SharedMemory : protects
+
+note right of SharedMemory
+  Zone de mémoire partagée
+  entre le serveur et les clients
+  pour stocker l'état global
+end note
+
+note right of Semaphore
+  Synchronisation de l'accès
+  à la mémoire partagée
+  (opérations P et V)
+end note
+
+note right of Message
+  Structure de données
+  pour tous les types
+  de messages échangés
+end note
+
+@enduml

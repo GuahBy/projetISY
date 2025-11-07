@@ -1,0 +1,62 @@
+@startuml use_case_diagram
+!theme plain
+
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Utilisateur" as User
+actor "Serveur" as Server
+
+rectangle "Système de Messagerie" {
+    usecase "Se connecter" as UC1
+    usecase "Envoyer message public" as UC2
+    usecase "Envoyer message privé" as UC3
+    usecase "Rejoindre un groupe" as UC4
+    usecase "Quitter un groupe" as UC5
+    usecase "Créer un groupe" as UC6
+    usecase "Fusionner des groupes" as UC7
+    usecase "Lister les utilisateurs" as UC8
+    usecase "Lister les groupes" as UC9
+    usecase "Changer la couleur du prompt" as UC10
+    usecase "Se déconnecter" as UC11
+    usecase "Gérer la mémoire partagée" as UC12
+    usecase "Synchroniser l'accès" as UC13
+    usecase "Router les messages" as UC14
+}
+
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+User --> UC7
+User --> UC8
+User --> UC9
+User --> UC10
+User --> UC11
+
+Server --> UC12
+Server --> UC13
+Server --> UC14
+
+UC2 ..> UC4 : <<requires>>
+UC7 ..> UC6 : <<requires>>
+UC14 ..> UC13 : <<uses>>
+
+note right of UC3
+  Permet d'envoyer un message
+  à un utilisateur spécifique
+end note
+
+note right of UC7
+  Fusionne deux groupes
+  en un seul
+end note
+
+note right of UC10
+  Change la couleur ANSI
+  du prompt utilisateur
+end note
+
+@enduml

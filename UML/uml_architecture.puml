@@ -1,0 +1,82 @@
+@startuml architecture_diagram
+!theme plain
+
+package "Serveur de Messagerie" {
+    component [Serveur Principal] as Server
+    database "Mémoire Partagée\n(SHM)" as SHM
+    component [Sémaphore] as Sem
+    
+    Server -down-> SHM : Lit/Écrit
+    Server -down-> Sem : Synchronise
+    Sem -right-> SHM : Protège
+}
+
+package "Client 1" {
+    component [Interface Utilisateur 1] as UI1
+    component [Thread Réception 1] as RT1
+    component [Thread Principal 1] as MT1
+    
+    UI1 -down-> MT1
+    RT1 -up-> UI1 : Affiche messages
+}
+
+package "Client 2" {
+    component [Interface Utilisateur 2] as UI2
+    component [Thread Réception 2] as RT2
+    component [Thread Principal 2] as MT2
+    
+    UI2 -down-> MT2
+    RT2 -up-> UI2 : Affiche messages
+}
+
+package "Client N" {
+    component [Interface Utilisateur N] as UIN
+    component [Thread Réception N] as RTN
+    component [Thread Principal N] as MTN
+    
+    UIN -down-> MTN
+    RTN -up-> UIN : Affiche messages
+}
+
+cloud "Réseau UDP" as Network {
+    interface "Port 8000" as Port
+}
+
+MT1 -right-> Network : Envoie messages
+RT1 <-right- Network : Reçoit messages
+MT2 -right-> Network : Envoie messages
+RT2 <-right- Network : Reçoit messages
+MTN -left-> Network : Envoie messages
+RTN <-left- Network : Reçoit messages
+
+Server <-down-> Port : Écoute/Envoie
+
+SHM -[hidden]down- Note1
+Sem -[hidden]down- Note2
+
+note bottom of SHM
+  Stocke:
+  - Liste des utilisateurs actifs
+  - Liste des groupes
+  - Membres de chaque groupe
+end note
+
+note bottom of Sem
+  Garantit l'exclusion mutuelle
+  pour l'accès à la SHM
+  (opérations P et V)
+end note
+
+note right of Network
+  Communication asynchrone
+  via socket UDP
+  (SOCK_DGRAM)
+end note
+
+note left of RT1
+  Chaque client a un thread
+  dédié à la réception des
+  messages du serveur
+end note
+
+@enduml

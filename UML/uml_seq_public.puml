@@ -1,0 +1,61 @@
+@startuml sequence_public_message
+!theme plain
+
+actor "Utilisateur" as User
+participant "Client" as Client
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Autres\nClients" as Others
+
+User -> Client: Saisir message\n"Hello world"
+
+Client -> Client: Vérifier groupe actuel
+
+Client -> Socket: Créer Message\n(MSG_PUBLIC)
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> SHM: Chercher groupe
+
+SHM --> Server: Groupe trouvé
+
+Server -> SHM: Lister utilisateurs\ndu groupe
+
+SHM --> Server: Liste utilisateurs
+
+loop Pour chaque utilisateur du groupe
+    Server -> Socket: sendto(Message,\nadresse utilisateur)
+    Socket -> Others: Message UDP
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+Others -> Others: Recevoir message
+
+Others -> Others: Afficher message\navec couleur
+
+note right of Server
+  Le serveur route le message
+  à tous les membres du groupe
+  sauf l'émetteur
+end note
+
+note right of Sem
+  Le sémaphore garantit
+  qu'un seul processus
+  accède à la SHM à la fois
+end note
+
+@enduml
