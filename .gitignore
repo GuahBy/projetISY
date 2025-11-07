@@ -1,0 +1,24 @@
+# Fichiers compilés
+*.o
+*.out
+*.exe
+
+# Exécutables
+server
+client
+
+# Fichiers de clés IPC
+shm_key.txt
+sem_key.txt
+
+# Fichiers de débogage
+*.dSYM/
+*.su
+*.core
+core.*
+
+# Fichiers temporaires
+*~
+*.swp
+*.swo
+.DS_Store

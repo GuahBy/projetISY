@@ -31,11 +31,17 @@ void cleanup_and_exit(int signum) {
     exit(0);
 }
 
-void handle_client_message(int sockfd, SharedMemory *shm, int semid, 
+void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                           Message *msg, struct sockaddr_in *client_addr) {
+    // Log de débogage
+    char ip_str[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &(client_addr->sin_addr), ip_str, INET_ADDRSTRLEN);
+    printf("[DEBUG HANDLER] Message Type: %d, De: %s (%s:%d)\n",
+           msg->type, msg->sender, ip_str, ntohs(client_addr->sin_port));
+
     // Verrouiller l'accès à la mémoire partagée
     sem_p(semid);
-    
+
     switch (msg->type) {
         case MSG_JOIN: {
             // Ajouter l'utilisateur s'il n'existe pas
