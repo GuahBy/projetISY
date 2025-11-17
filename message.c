@@ -59,7 +59,12 @@ void message_display(const Message *msg, const char *color) {
             printf("%s[%s] %s s'est déconnecté%s\n",
                    COLOR_RED, time_str, msg->sender, COLOR_RESET);
             break;
-            
+
+        case MSG_CHANGE_COLOR:
+            printf("%s[%s] %s a changé sa couleur en %s%s\n",
+                   COLOR_CYAN, time_str, msg->sender, msg->content, COLOR_RESET);
+            break;
+
         default:
             printf("[%s] Message de %s: %s\n", time_str, msg->sender, msg->content);
             break;

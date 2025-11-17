@@ -114,7 +114,32 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             }
             break;
         }
-        
+
+        case MSG_CHANGE_COLOR: {
+            // Changer la couleur de l'utilisateur
+            const char *color_code = COLOR_GREEN;
+
+            if (strcmp(msg->content, "red") == 0) color_code = COLOR_RED;
+            else if (strcmp(msg->content, "green") == 0) color_code = COLOR_GREEN;
+            else if (strcmp(msg->content, "yellow") == 0) color_code = COLOR_YELLOW;
+            else if (strcmp(msg->content, "blue") == 0) color_code = COLOR_BLUE;
+            else if (strcmp(msg->content, "magenta") == 0) color_code = COLOR_MAGENTA;
+            else if (strcmp(msg->content, "cyan") == 0) color_code = COLOR_CYAN;
+            else if (strcmp(msg->content, "white") == 0) color_code = COLOR_WHITE;
+
+            // Mettre à jour la couleur de l'utilisateur
+            user_set_color(shm, msg->sender, color_code);
+
+            printf(">>> %s a changé sa couleur en %s\n", msg->sender, msg->content);
+            snprintf(log_buffer, sizeof(log_buffer), "%s a changé sa couleur en %s",
+                    msg->sender, msg->content);
+            log_event(g_logfile, "CHANGE_COLOR", log_buffer);
+
+            // Propager le changement de couleur à tous les membres du groupe
+            message_send_to_group(sockfd, shm, msg);
+            break;
+        }
+
         case MSG_CREATE_GROUP: {
             // Créer un nouveau groupe
             if (group_create(shm, msg->content) >= 0) {
