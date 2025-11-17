@@ -157,7 +157,7 @@ int process_command(char *input) {
         }
         else if (sscanf(input, "/color %s", arg1) == 1) {
             const char *color = COLOR_GREEN;
-            
+
             if (strcmp(arg1, "red") == 0) color = COLOR_RED;
             else if (strcmp(arg1, "green") == 0) color = COLOR_GREEN;
             else if (strcmp(arg1, "yellow") == 0) color = COLOR_YELLOW;
@@ -169,17 +169,24 @@ int process_command(char *input) {
                 printf("Couleur inconnue. Choix: red, green, yellow, blue, magenta, cyan, white\n");
                 return 0;
             }
-            
+
             strncpy(g_user_color, color, sizeof(g_user_color) - 1);
             g_user_color[sizeof(g_user_color) - 1] = '\0';
-            
+
             if (g_shm != NULL) {
                 sem_p(g_semid);
                 user_set_color(g_shm, g_username, color);
                 sem_v(g_semid);
             }
-            
+
             printf("Couleur changée en %s\n", arg1);
+
+            // Envoyer le changement de couleur au serveur pour propager au groupe
+            if (strlen(g_current_group) > 0) {
+                Message msg;
+                message_create(&msg, MSG_CHANGE_COLOR, g_username, NULL, g_current_group, arg1);
+                socket_send(g_sockfd, &msg, &g_server_addr);
+            }
         }
         else if (strncmp(input, "/msg ", 5) == 0) {
             // Format: /msg username message
