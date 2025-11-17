@@ -41,19 +41,58 @@ void cleanup_and_exit(int signum) {
 void* receive_thread(void *arg) {
     Message msg;
     struct sockaddr_in src_addr;
-    
+
     while (g_running) {
         ssize_t n = socket_receive(g_sockfd, &msg, &src_addr);
-        
+
         if (n > 0) {
             printf("\n");
-            message_display(&msg, g_user_color);
+
+            // Gérer les cas spéciaux avant d'afficher
+            if (msg.type == MSG_JOIN && strcmp(msg.sender, g_username) == 0) {
+                // Confirmation de connexion au groupe
+                strncpy(g_current_group, msg.group, MAX_GROUP_NAME - 1);
+                g_current_group[MAX_GROUP_NAME - 1] = '\0';
+                printf("%sConnecté au groupe %s%s\n", COLOR_GREEN, msg.group, COLOR_RESET);
+
+                // Récupérer la couleur du groupe depuis la mémoire partagée
+                if (g_shm != NULL) {
+                    sem_p(g_semid);
+                    Group *group = group_find(g_shm, msg.group);
+                    if (group != NULL && strlen(group->color) > 0) {
+                        strncpy(g_user_color, group->color, sizeof(g_user_color) - 1);
+                        g_user_color[sizeof(g_user_color) - 1] = '\0';
+                    }
+                    sem_v(g_semid);
+                }
+            } else if (msg.type == MSG_CHANGE_COLOR) {
+                // Changement de couleur du groupe
+                const char *color_code = COLOR_GREEN;
+
+                if (strcmp(msg.content, "red") == 0) color_code = COLOR_RED;
+                else if (strcmp(msg.content, "green") == 0) color_code = COLOR_GREEN;
+                else if (strcmp(msg.content, "yellow") == 0) color_code = COLOR_YELLOW;
+                else if (strcmp(msg.content, "blue") == 0) color_code = COLOR_BLUE;
+                else if (strcmp(msg.content, "magenta") == 0) color_code = COLOR_MAGENTA;
+                else if (strcmp(msg.content, "cyan") == 0) color_code = COLOR_CYAN;
+                else if (strcmp(msg.content, "white") == 0) color_code = COLOR_WHITE;
+
+                strncpy(g_user_color, color_code, sizeof(g_user_color) - 1);
+                g_user_color[sizeof(g_user_color) - 1] = '\0';
+
+                // Afficher le message
+                message_display(&msg, g_user_color);
+            } else {
+                // Affichage normal des autres messages
+                message_display(&msg, g_user_color);
+            }
+
             display_prompt(g_username, g_current_group, g_user_color);
         }
-        
+
         usleep(10000); // 10 ms
     }
-    
+
     return NULL;
 }
 
@@ -130,15 +169,12 @@ int process_command(char *input) {
                 message_create(&leave_msg, MSG_LEAVE, g_username, NULL, g_current_group, "");
                 socket_send(g_sockfd, &leave_msg, &g_server_addr);
             }
-            
+
             // Rejoindre le nouveau groupe
             Message msg;
             message_create(&msg, MSG_JOIN, g_username, NULL, arg1, "");
             socket_send(g_sockfd, &msg, &g_server_addr);
-            strncpy(g_current_group, arg1, MAX_GROUP_NAME - 1);
-            g_current_group[MAX_GROUP_NAME - 1] = '\0';
-            
-            printf("Tentative de connexion au groupe %s...\n", arg1);
+            // Ne pas mettre à jour g_current_group ici, attendre la confirmation du serveur
         }
         else if (sscanf(input, "/create %s", arg1) == 1) {
             Message msg;
@@ -156,37 +192,29 @@ int process_command(char *input) {
             printf("Demande de fusion des groupes %s et %s...\n", arg1, arg2);
         }
         else if (sscanf(input, "/color %s", arg1) == 1) {
-            const char *color = COLOR_GREEN;
-
-            if (strcmp(arg1, "red") == 0) color = COLOR_RED;
-            else if (strcmp(arg1, "green") == 0) color = COLOR_GREEN;
-            else if (strcmp(arg1, "yellow") == 0) color = COLOR_YELLOW;
-            else if (strcmp(arg1, "blue") == 0) color = COLOR_BLUE;
-            else if (strcmp(arg1, "magenta") == 0) color = COLOR_MAGENTA;
-            else if (strcmp(arg1, "cyan") == 0) color = COLOR_CYAN;
-            else if (strcmp(arg1, "white") == 0) color = COLOR_WHITE;
-            else {
+            // Vérifier que la couleur est valide
+            if (strcmp(arg1, "red") != 0 &&
+                strcmp(arg1, "green") != 0 &&
+                strcmp(arg1, "yellow") != 0 &&
+                strcmp(arg1, "blue") != 0 &&
+                strcmp(arg1, "magenta") != 0 &&
+                strcmp(arg1, "cyan") != 0 &&
+                strcmp(arg1, "white") != 0) {
                 printf("Couleur inconnue. Choix: red, green, yellow, blue, magenta, cyan, white\n");
                 return 0;
             }
 
-            strncpy(g_user_color, color, sizeof(g_user_color) - 1);
-            g_user_color[sizeof(g_user_color) - 1] = '\0';
-
-            if (g_shm != NULL) {
-                sem_p(g_semid);
-                user_set_color(g_shm, g_username, color);
-                sem_v(g_semid);
+            // Vérifier qu'on est dans un groupe
+            if (strlen(g_current_group) == 0) {
+                printf("Vous devez rejoindre un groupe pour changer sa couleur\n");
+                return 0;
             }
 
-            printf("Couleur changée en %s\n", arg1);
-
-            // Envoyer le changement de couleur au serveur pour propager au groupe
-            if (strlen(g_current_group) > 0) {
-                Message msg;
-                message_create(&msg, MSG_CHANGE_COLOR, g_username, NULL, g_current_group, arg1);
-                socket_send(g_sockfd, &msg, &g_server_addr);
-            }
+            // Envoyer le changement de couleur au serveur
+            // Le serveur propagera le changement à tous les membres du groupe
+            Message msg;
+            message_create(&msg, MSG_CHANGE_COLOR, g_username, NULL, g_current_group, arg1);
+            socket_send(g_sockfd, &msg, &g_server_addr);
         }
         else if (strncmp(input, "/msg ", 5) == 0) {
             // Format: /msg username message

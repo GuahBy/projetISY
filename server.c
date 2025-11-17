@@ -57,24 +57,49 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             User *user = user_find(shm, msg->sender);
             if (user == NULL) {
                 user_add(shm, msg->sender, client_addr, ntohs(client_addr->sin_port));
+                user = user_find(shm, msg->sender);
             }
 
             // Créer le groupe s'il n'existe pas
             Group *group = group_find(shm, msg->group);
             if (group == NULL) {
                 group_create(shm, msg->group);
+                group = group_find(shm, msg->group);
             }
 
             // Ajouter l'utilisateur au groupe
-            group_add_user(shm, msg->group, msg->sender);
+            int join_result = group_add_user(shm, msg->group, msg->sender);
 
-            // Diffuser le message de join au groupe
-            message_send_to_group(sockfd, shm, msg);
+            if (join_result == 0) {
+                // Succès : diffuser le message de join au groupe (sauf à l'envoyeur)
+                message_send_to_group(sockfd, shm, msg);
 
-            printf(">>> %s a rejoint %s\n", msg->sender, msg->group);
-            snprintf(log_buffer, sizeof(log_buffer), "%s a rejoint le groupe %s (%s:%d)",
-                    msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
-            log_event(g_logfile, "JOIN", log_buffer);
+                // Envoyer une confirmation au client qui s'est connecté
+                if (user != NULL) {
+                    Message confirm;
+                    message_create(&confirm, MSG_JOIN, msg->sender, NULL, msg->group, "");
+                    socket_send(sockfd, &confirm, &user->addr);
+                }
+
+                printf(">>> %s a rejoint %s\n", msg->sender, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer), "%s a rejoint le groupe %s (%s:%d)",
+                        msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+                log_event(g_logfile, "JOIN", log_buffer);
+            } else {
+                // Échec : envoyer un message d'erreur au client
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE, "Échec de connexion au groupe %s", msg->group);
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+
+                printf(">>> Échec : %s n'a pas pu rejoindre %s\n", msg->sender, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer), "Échec : %s n'a pas pu rejoindre %s (%s:%d)",
+                        msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+                log_event(g_logfile, "JOIN_FAIL", log_buffer);
+            }
             break;
         }
         
@@ -116,7 +141,7 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
         }
 
         case MSG_CHANGE_COLOR: {
-            // Changer la couleur de l'utilisateur
+            // Changer la couleur du groupe
             const char *color_code = COLOR_GREEN;
 
             if (strcmp(msg->content, "red") == 0) color_code = COLOR_RED;
@@ -127,16 +152,27 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             else if (strcmp(msg->content, "cyan") == 0) color_code = COLOR_CYAN;
             else if (strcmp(msg->content, "white") == 0) color_code = COLOR_WHITE;
 
-            // Mettre à jour la couleur de l'utilisateur
-            user_set_color(shm, msg->sender, color_code);
+            // Mettre à jour la couleur du groupe
+            Group *group = group_find(shm, msg->group);
+            if (group != NULL) {
+                strncpy(group->color, color_code, 15);
+                group->color[15] = '\0';
 
-            printf(">>> %s a changé sa couleur en %s\n", msg->sender, msg->content);
-            snprintf(log_buffer, sizeof(log_buffer), "%s a changé sa couleur en %s",
-                    msg->sender, msg->content);
-            log_event(g_logfile, "CHANGE_COLOR", log_buffer);
+                printf(">>> %s a changé la couleur du groupe %s en %s\n",
+                       msg->sender, msg->group, msg->content);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s a changé la couleur du groupe %s en %s",
+                        msg->sender, msg->group, msg->content);
+                log_event(g_logfile, "CHANGE_COLOR", log_buffer);
 
-            // Propager le changement de couleur à tous les membres du groupe
-            message_send_to_group(sockfd, shm, msg);
+                // Propager le changement de couleur à TOUS les membres du groupe
+                for (int i = 0; i < group->user_count; i++) {
+                    User *user = user_find(shm, group->users[i]);
+                    if (user != NULL && user->active) {
+                        socket_send(sockfd, msg, &user->addr);
+                    }
+                }
+            }
             break;
         }
 

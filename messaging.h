@@ -74,6 +74,7 @@ typedef struct {
     int user_count;
     char users[MAX_CLIENTS][MAX_USERNAME];
     int active;
+    char color[16];  // Couleur du groupe (partagée par tous les membres)
 } Group;
 
 // Structure de la mémoire partagée

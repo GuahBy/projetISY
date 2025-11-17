@@ -13,6 +13,8 @@ int group_create(SharedMemory *shm, const char *group_name) {
                 // Réactiver le groupe
                 shm->groups[i].active = 1;
                 shm->groups[i].user_count = 0;
+                strncpy(shm->groups[i].color, COLOR_GREEN, 15);
+                shm->groups[i].color[15] = '\0';
                 return i;
             }
         }
@@ -23,14 +25,16 @@ int group_create(SharedMemory *shm, const char *group_name) {
         fprintf(stderr, "Nombre maximum de groupes atteint\n");
         return -1;
     }
-    
+
     int idx = shm->group_count;
     strncpy(shm->groups[idx].name, group_name, MAX_GROUP_NAME - 1);
     shm->groups[idx].name[MAX_GROUP_NAME - 1] = '\0';
     shm->groups[idx].user_count = 0;
     shm->groups[idx].active = 1;
+    strncpy(shm->groups[idx].color, COLOR_GREEN, 15);
+    shm->groups[idx].color[15] = '\0';
     shm->group_count++;
-    
+
     printf("Groupe %s créé (index %d)\n", group_name, idx);
     return idx;
 }
