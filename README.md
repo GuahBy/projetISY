@@ -37,11 +37,11 @@ Ce projet implémente un système de messagerie en temps réel permettant à plu
 
 ```
 ┌─────────────────────────────────────────────────┐
-│                    SERVEUR                       │
-│  • Port UDP : 8000                               │
-│  • Mémoire partagée (50 users, 10 groupes)       │
-│  • Sémaphore pour synchronisation                │
-│  • Routage des messages                          │
+│                    SERVEUR                      │
+│  • Port UDP : 8000                              │
+│  • Mémoire partagée (50 users, 10 groupes)      │
+│  • Sémaphore pour synchronisation               │
+│  • Routage des messages                         │
 └─────────────────────────────────────────────────┘
                         ↕ UDP
 ┌─────────────────────────────────────────────────┐
