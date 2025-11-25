@@ -181,10 +181,10 @@ end note
 
 note as Legend
   <b>Légende</b>
-  <#LightBlue>   </> Données
-  <#LightGreen>  </> Synchronisation
-  <#LightYellow> </> Communication
-  <#LightPink>   </> Application
+  Bleu  </> Données
+  Vert  </> Synchronisation
+  Jaune </> Communication
+  Rouge </> Application
 end note
 
 @enduml
