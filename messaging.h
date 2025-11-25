@@ -44,7 +44,9 @@ typedef enum {
     MSG_CREATE_GROUP,  // Créer un groupe
     MSG_MERGE_GROUPS,  // Fusionner deux groupes
     MSG_CHANGE_COLOR,  // Changer la couleur du prompt
-    MSG_DISCONNECT     // Déconnexion
+    MSG_DISCONNECT,    // Déconnexion
+    MSG_KICK_USER,     // Exclure un utilisateur (admin uniquement)
+    MSG_PROMOTE_ADMIN  // Promouvoir un utilisateur en administrateur (admin uniquement)
 } MessageType;
 
 // Structure pour un message
@@ -73,6 +75,8 @@ typedef struct {
     char name[MAX_GROUP_NAME];
     int user_count;
     char users[MAX_CLIENTS][MAX_USERNAME];
+    int admin_count;                         // Nombre d'administrateurs
+    char admins[MAX_CLIENTS][MAX_USERNAME];  // Liste des administrateurs
     int active;
     char color[16];  // Couleur du groupe (partagée par tous les membres)
 } Group;
@@ -117,11 +121,14 @@ User* user_find(SharedMemory *shm, const char *username);
 int user_set_color(SharedMemory *shm, const char *username, const char *color);
 
 // Prototypes des fonctions - Gestion groupes
-int group_create(SharedMemory *shm, const char *group_name);
+int group_create(SharedMemory *shm, const char *group_name, const char *creator);
 int group_add_user(SharedMemory *shm, const char *group_name, const char *username);
 int group_remove_user(SharedMemory *shm, const char *group_name, const char *username);
 Group* group_find(SharedMemory *shm, const char *group_name);
 int group_merge(SharedMemory *shm, const char *group1, const char *group2);
+int group_is_admin(Group *group, const char *username);
+int group_add_admin(Group *group, const char *username);
+int group_kick_user(SharedMemory *shm, const char *group_name, const char *username);
 
 // Prototypes des fonctions - Gestion messages
 void message_create(Message *msg, MessageType type, const char *sender, 
