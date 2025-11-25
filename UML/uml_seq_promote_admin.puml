@@ -101,6 +101,7 @@ note left of Admin
   - Exclure des utilisateurs
   - Promouvoir d'autres admins
   - Fusionner des groupes
+  - Changer la couleur du groupe
 end note
 
 @enduml

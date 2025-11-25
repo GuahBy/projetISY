@@ -1,12 +1,14 @@
 @startuml use_case_diagram
 !theme plain
-
 left to right direction
 skinparam packageStyle rectangle
 
 actor "Utilisateur" as User
 actor "Administrateur" as Admin
 actor "Serveur" as Server
+
+' L'Admin hérite de tous les droits Utilisateur
+Admin --|> User
 
 rectangle "Système de Messagerie" {
     usecase "Se connecter" as UC1
@@ -15,19 +17,24 @@ rectangle "Système de Messagerie" {
     usecase "Rejoindre un groupe" as UC4
     usecase "Quitter un groupe" as UC5
     usecase "Créer un groupe" as UC6
-    usecase "Fusionner des groupes" as UC7
     usecase "Lister les utilisateurs" as UC8
     usecase "Lister les groupes" as UC9
     usecase "Changer la couleur du prompt" as UC10
     usecase "Se déconnecter" as UC11
+    
+    ' Cas d'usage spécifiques à l'admin
+    usecase "Fusionner des groupes" as UC7
     usecase "Exclure un utilisateur" as UC12
     usecase "Promouvoir un administrateur" as UC13
+    
+    ' Cas d'usage du serveur
     usecase "Gérer la mémoire partagée" as UC14
     usecase "Synchroniser l'accès" as UC15
     usecase "Router les messages" as UC16
     usecase "Logger les événements" as UC17
 }
 
+' Relations Utilisateur
 User --> UC1
 User --> UC2
 User --> UC3
@@ -39,25 +46,18 @@ User --> UC9
 User --> UC10
 User --> UC11
 
-Admin --> UC1
-Admin --> UC2
-Admin --> UC3
-Admin --> UC4
-Admin --> UC5
-Admin --> UC6
+' Relations Admin (seulement les spécifiques)
 Admin --> UC7
-Admin --> UC8
-Admin --> UC9
-Admin --> UC10
-Admin --> UC11
 Admin --> UC12
 Admin --> UC13
 
+' Relations Serveur
 Server --> UC14
 Server --> UC15
 Server --> UC16
 Server --> UC17
 
+' Dépendances entre cas d'usage
 UC2 ..> UC4 : <<requires>>
 UC7 ..> UC6 : <<requires>>
 UC12 ..> UC4 : <<requires>>
@@ -65,35 +65,19 @@ UC13 ..> UC4 : <<requires>>
 UC16 ..> UC15 : <<uses>>
 UC17 ..> UC15 : <<uses>>
 
-note right of UC3
-  Permet d'envoyer un message
-  à un utilisateur spécifique
-end note
-
 note right of UC7
   Fusionne deux groupes
-  en un seul (admin uniquement)
-end note
-
-note right of UC10
-  Change la couleur ANSI
-  du groupe (tous les membres)
+  en un seul
 end note
 
 note right of UC12
   Exclure un utilisateur
-  d'un groupe (admin uniquement)
+  d'un groupe
 end note
 
 note right of UC13
   Promouvoir un utilisateur
-  en administrateur (admin uniquement)
-end note
-
-note right of Admin
-  Un administrateur hérite
-  de tous les droits utilisateur
-  plus des droits de gestion
+  en administrateur
 end note
 
 @enduml
