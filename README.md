@@ -39,13 +39,13 @@ Ce projet implémente un système de messagerie en temps réel permettant à plu
 ┌─────────────────────────────────────────────────┐
 │                    SERVEUR                       │
 │  • Port UDP : 8000                               │
-│  • Mémoire partagée (50 users, 10 groupes)      │
+│  • Mémoire partagée (50 users, 10 groupes)       │
 │  • Sémaphore pour synchronisation                │
 │  • Routage des messages                          │
 └─────────────────────────────────────────────────┘
                         ↕ UDP
 ┌─────────────────────────────────────────────────┐
-│                   CLIENTS                        │
+│                   CLIENTS                       │
 │  • Thread principal : input utilisateur         │
 │  • Thread réception : messages asynchrones      │
 │  • Accès lecture à la mémoire partagée          │
