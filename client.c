@@ -102,10 +102,12 @@ void print_help(void) {
     printf("  /leave                 - Quitter le groupe actuel\n");
     printf("  /msg <user> <message>  - Envoyer un message privé\n");
     printf("  /create <groupe>       - Créer un nouveau groupe\n");
-    printf("  /merge <g1> <g2>       - Fusionner deux groupes\n");
+    printf("  /merge <g1> <g2>       - Fusionner deux groupes (admin uniquement)\n");
+    printf("  /kick <user>           - Exclure un utilisateur (admin uniquement)\n");
+    printf("  /promote <user>        - Promouvoir un utilisateur admin (admin uniquement)\n");
     printf("  /users                 - Lister les utilisateurs\n");
     printf("  /groups                - Lister les groupes\n");
-    printf("  /color <couleur>       - Changer la couleur du prompt\n");
+    printf("  /color <couleur>       - Changer la couleur du prompt (admin uniquement)\n");
     printf("                          (red, green, yellow, blue, magenta, cyan, white)\n");
     printf("  /clear                 - Effacer l'écran\n");
     printf("  /help                  - Afficher cette aide\n");
@@ -215,6 +217,32 @@ int process_command(char *input) {
             Message msg;
             message_create(&msg, MSG_CHANGE_COLOR, g_username, NULL, g_current_group, arg1);
             socket_send(g_sockfd, &msg, &g_server_addr);
+        }
+        else if (sscanf(input, "/kick %s", arg1) == 1) {
+            // Vérifier qu'on est dans un groupe
+            if (strlen(g_current_group) == 0) {
+                printf("Vous devez être dans un groupe pour exclure un utilisateur\n");
+                return 0;
+            }
+
+            // Envoyer la demande d'exclusion au serveur
+            Message msg;
+            message_create(&msg, MSG_KICK_USER, g_username, NULL, g_current_group, arg1);
+            socket_send(g_sockfd, &msg, &g_server_addr);
+            printf("Demande d'exclusion de %s du groupe %s...\n", arg1, g_current_group);
+        }
+        else if (sscanf(input, "/promote %s", arg1) == 1) {
+            // Vérifier qu'on est dans un groupe
+            if (strlen(g_current_group) == 0) {
+                printf("Vous devez être dans un groupe pour promouvoir un utilisateur\n");
+                return 0;
+            }
+
+            // Envoyer la demande de promotion au serveur
+            Message msg;
+            message_create(&msg, MSG_PROMOTE_ADMIN, g_username, NULL, g_current_group, arg1);
+            socket_send(g_sockfd, &msg, &g_server_addr);
+            printf("Demande de promotion de %s comme administrateur de %s...\n", arg1, g_current_group);
         }
         else if (strncmp(input, "/msg ", 5) == 0) {
             // Format: /msg username message

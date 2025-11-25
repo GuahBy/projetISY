@@ -60,10 +60,10 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 user = user_find(shm, msg->sender);
             }
 
-            // Créer le groupe s'il n'existe pas
+            // Créer le groupe s'il n'existe pas (le créateur devient admin)
             Group *group = group_find(shm, msg->group);
             if (group == NULL) {
-                group_create(shm, msg->group);
+                group_create(shm, msg->group, msg->sender);
                 group = group_find(shm, msg->group);
             }
 
@@ -141,6 +141,33 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
         }
 
         case MSG_CHANGE_COLOR: {
+            // Vérifier que l'utilisateur est administrateur du groupe
+            Group *group = group_find(shm, msg->group);
+            if (group == NULL) {
+                printf(">>> Groupe %s non trouvé\n", msg->group);
+                break;
+            }
+
+            if (!group_is_admin(group, msg->sender)) {
+                // Envoyer un message d'erreur
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Seuls les administrateurs peuvent changer la couleur du groupe");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                printf(">>> %s (non-admin) a tenté de changer la couleur de %s\n",
+                       msg->sender, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (non-admin) a tenté de changer la couleur de %s",
+                        msg->sender, msg->group);
+                log_event(g_logfile, "CHANGE_COLOR_DENIED", log_buffer);
+                break;
+            }
+
             // Changer la couleur du groupe
             const char *color_code = COLOR_GREEN;
 
@@ -153,34 +180,31 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             else if (strcmp(msg->content, "white") == 0) color_code = COLOR_WHITE;
 
             // Mettre à jour la couleur du groupe
-            Group *group = group_find(shm, msg->group);
-            if (group != NULL) {
-                strncpy(group->color, color_code, 15);
-                group->color[15] = '\0';
+            strncpy(group->color, color_code, 15);
+            group->color[15] = '\0';
 
-                printf(">>> %s a changé la couleur du groupe %s en %s\n",
-                       msg->sender, msg->group, msg->content);
-                snprintf(log_buffer, sizeof(log_buffer),
-                        "%s a changé la couleur du groupe %s en %s",
-                        msg->sender, msg->group, msg->content);
-                log_event(g_logfile, "CHANGE_COLOR", log_buffer);
+            printf(">>> %s (admin) a changé la couleur du groupe %s en %s\n",
+                   msg->sender, msg->group, msg->content);
+            snprintf(log_buffer, sizeof(log_buffer),
+                    "%s (admin) a changé la couleur du groupe %s en %s",
+                    msg->sender, msg->group, msg->content);
+            log_event(g_logfile, "CHANGE_COLOR", log_buffer);
 
-                // Propager le changement de couleur à TOUS les membres du groupe
-                for (int i = 0; i < group->user_count; i++) {
-                    User *user = user_find(shm, group->users[i]);
-                    if (user != NULL && user->active) {
-                        socket_send(sockfd, msg, &user->addr);
-                    }
+            // Propager le changement de couleur à TOUS les membres du groupe
+            for (int i = 0; i < group->user_count; i++) {
+                User *user = user_find(shm, group->users[i]);
+                if (user != NULL && user->active) {
+                    socket_send(sockfd, msg, &user->addr);
                 }
             }
             break;
         }
 
         case MSG_CREATE_GROUP: {
-            // Créer un nouveau groupe
-            if (group_create(shm, msg->content) >= 0) {
-                printf(">>> Groupe %s créé par %s\n", msg->content, msg->sender);
-                snprintf(log_buffer, sizeof(log_buffer), "Groupe %s créé par %s",
+            // Créer un nouveau groupe (le créateur devient admin)
+            if (group_create(shm, msg->content, msg->sender) >= 0) {
+                printf(">>> Groupe %s créé par %s (admin)\n", msg->content, msg->sender);
+                snprintf(log_buffer, sizeof(log_buffer), "Groupe %s créé par %s (admin)",
                         msg->content, msg->sender);
                 log_event(g_logfile, "CREATE_GROUP", log_buffer);
 
@@ -200,9 +224,38 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             // Format du contenu: "groupe1:groupe2"
             char group1[MAX_GROUP_NAME], group2[MAX_GROUP_NAME];
             if (sscanf(msg->content, "%[^:]:%s", group1, group2) == 2) {
+                // Vérifier que l'utilisateur est admin du premier groupe
+                Group *g1 = group_find(shm, group1);
+                Group *g2 = group_find(shm, group2);
+
+                if (g1 == NULL || g2 == NULL) {
+                    printf(">>> Un des groupes à fusionner n'existe pas\n");
+                    break;
+                }
+
+                if (!group_is_admin(g1, msg->sender)) {
+                    // Envoyer un message d'erreur
+                    User *user = user_find(shm, msg->sender);
+                    if (user != NULL) {
+                        Message error_msg;
+                        char error_content[MAX_MESSAGE];
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Seuls les administrateurs de %s peuvent fusionner ce groupe", group1);
+                        message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                        socket_send(sockfd, &error_msg, &user->addr);
+                    }
+                    printf(">>> %s (non-admin) a tenté de fusionner %s et %s\n",
+                           msg->sender, group1, group2);
+                    snprintf(log_buffer, sizeof(log_buffer),
+                            "%s (non-admin) a tenté de fusionner %s et %s",
+                            msg->sender, group1, group2);
+                    log_event(g_logfile, "MERGE_GROUPS_DENIED", log_buffer);
+                    break;
+                }
+
                 if (group_merge(shm, group1, group2) == 0) {
-                    printf(">>> Groupes %s et %s fusionnés\n", group1, group2);
-                    snprintf(log_buffer, sizeof(log_buffer), "Groupes %s et %s fusionnés par %s",
+                    printf(">>> Groupes %s et %s fusionnés par %s (admin)\n", group1, group2, msg->sender);
+                    snprintf(log_buffer, sizeof(log_buffer), "Groupes %s et %s fusionnés par %s (admin)",
                             group1, group2, msg->sender);
                     log_event(g_logfile, "MERGE_GROUPS", log_buffer);
 
@@ -219,6 +272,142 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             break;
         }
         
+        case MSG_KICK_USER: {
+            // Format du contenu: username à exclure
+            // Le groupe est dans msg->group
+            Group *group = group_find(shm, msg->group);
+            if (group == NULL) {
+                printf(">>> Groupe %s non trouvé\n", msg->group);
+                break;
+            }
+
+            // Vérifier que l'utilisateur qui kick est admin
+            if (!group_is_admin(group, msg->sender)) {
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Seuls les administrateurs peuvent exclure des membres");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                printf(">>> %s (non-admin) a tenté d'exclure %s de %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (non-admin) a tenté d'exclure %s de %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "KICK_DENIED", log_buffer);
+                break;
+            }
+
+            // Ne pas permettre de s'auto-exclure
+            if (strcmp(msg->sender, msg->content) == 0) {
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Vous ne pouvez pas vous exclure vous-même");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                break;
+            }
+
+            // Exclure l'utilisateur
+            if (group_kick_user(shm, msg->group, msg->content) == 0) {
+                printf(">>> %s (admin) a exclu %s du groupe %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (admin) a exclu %s du groupe %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "KICK_USER", log_buffer);
+
+                // Notifier l'utilisateur exclu
+                User *kicked_user = user_find(shm, msg->content);
+                if (kicked_user != NULL) {
+                    Message notif;
+                    char notif_content[MAX_MESSAGE];
+                    snprintf(notif_content, MAX_MESSAGE,
+                            "Vous avez été exclu du groupe %s par %s", msg->group, msg->sender);
+                    message_create(&notif, MSG_LEAVE, "Serveur", NULL, msg->group, notif_content);
+                    socket_send(sockfd, &notif, &kicked_user->addr);
+                }
+
+                // Notifier le groupe
+                Message group_notif;
+                char group_notif_content[MAX_MESSAGE];
+                snprintf(group_notif_content, MAX_MESSAGE,
+                        "%s a été exclu du groupe par %s", msg->content, msg->sender);
+                message_create(&group_notif, MSG_PUBLIC, "Serveur",
+                             NULL, msg->group, group_notif_content);
+                message_send_to_group(sockfd, shm, &group_notif);
+            }
+            break;
+        }
+
+        case MSG_PROMOTE_ADMIN: {
+            // Format du contenu: username à promouvoir
+            // Le groupe est dans msg->group
+            Group *group = group_find(shm, msg->group);
+            if (group == NULL) {
+                printf(">>> Groupe %s non trouvé\n", msg->group);
+                break;
+            }
+
+            // Vérifier que l'utilisateur qui promeut est admin
+            if (!group_is_admin(group, msg->sender)) {
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Seuls les administrateurs peuvent promouvoir des membres");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                printf(">>> %s (non-admin) a tenté de promouvoir %s dans %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (non-admin) a tenté de promouvoir %s dans %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "PROMOTE_DENIED", log_buffer);
+                break;
+            }
+
+            // Promouvoir l'utilisateur
+            if (group_add_admin(group, msg->content) == 0) {
+                printf(">>> %s (admin) a promu %s administrateur du groupe %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (admin) a promu %s administrateur du groupe %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "PROMOTE_ADMIN", log_buffer);
+
+                // Notifier l'utilisateur promu
+                User *promoted_user = user_find(shm, msg->content);
+                if (promoted_user != NULL) {
+                    Message notif;
+                    char notif_content[MAX_MESSAGE];
+                    snprintf(notif_content, MAX_MESSAGE,
+                            "Vous êtes maintenant administrateur du groupe %s", msg->group);
+                    message_create(&notif, MSG_PUBLIC, "Serveur", NULL, NULL, notif_content);
+                    socket_send(sockfd, &notif, &promoted_user->addr);
+                }
+
+                // Notifier le groupe
+                Message group_notif;
+                char group_notif_content[MAX_MESSAGE];
+                snprintf(group_notif_content, MAX_MESSAGE,
+                        "%s est maintenant administrateur du groupe", msg->content);
+                message_create(&group_notif, MSG_PUBLIC, "Serveur",
+                             NULL, msg->group, group_notif_content);
+                message_send_to_group(sockfd, shm, &group_notif);
+            }
+            break;
+        }
+
         case MSG_DISCONNECT: {
             user_remove(shm, msg->sender);
             printf(">>> %s s'est déconnecté\n", msg->sender);
