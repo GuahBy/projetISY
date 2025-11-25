@@ -1,0 +1,95 @@
+@startuml sequence_kick_user
+!theme plain
+
+actor "Administrateur" as Admin
+participant "Client Admin" as ClientA
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Client Exclu" as ClientK
+actor "Utilisateur Exclu" as UserK
+
+Admin -> ClientA: /kick username
+
+ClientA -> ClientA: Vérifier groupe actuel
+
+ClientA -> Socket: Créer Message\n(MSG_KICK_USER,\nrecipient=username)
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> SHM: group_find(groupe)
+
+SHM --> Server: Group* groupe
+
+Server -> Server: group_is_admin()\nVérifier si admin
+
+alt Utilisateur est admin du groupe
+
+    Server -> SHM: user_find(username)
+
+    SHM --> Server: User* target
+
+    alt Utilisateur cible existe et dans le groupe
+
+        Server -> SHM: group_kick_user()\nRetirer du groupe
+
+        Server -> SHM: Mettre à jour\nuser->current_group = ""
+
+        Server -> Socket: Créer notification\n"Vous avez été exclu"
+
+        Server -> Socket: sendto(notification,\nadresse utilisateur exclu)
+
+        Socket -> ClientK: Message UDP
+
+        ClientK -> ClientK: Afficher notification\nd'exclusion
+
+        ClientK -> UserK: "Vous avez été exclu\ndu groupe par Admin"
+
+        ClientK -> ClientK: current_group = ""
+
+        Server -> Socket: Créer notification groupe\n"username a été exclu"
+
+        loop Pour chaque membre restant du groupe
+            Server -> Socket: sendto(notification,\nadresse membre)
+        end
+
+        Server --> ClientA: (Confirmation implicite)
+
+        Server -> Server: log_event()\n"KICK: username by Admin"
+
+    else Utilisateur non trouvé ou pas dans le groupe
+        Server --> ClientA: Erreur:\nUtilisateur non trouvé
+    end
+
+else Utilisateur n'est pas admin
+    Server --> ClientA: Erreur:\nDroits insuffisants
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+note right of Server
+  Seul un administrateur du groupe
+  peut exclure un utilisateur.
+  L'utilisateur exclu est retiré
+  du groupe et notifié.
+end note
+
+note right of ClientK
+  L'utilisateur exclu reçoit
+  une notification et est
+  automatiquement retiré
+  du groupe.
+end note
+
+@enduml

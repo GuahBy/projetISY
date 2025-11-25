@@ -5,6 +5,7 @@ left to right direction
 skinparam packageStyle rectangle
 
 actor "Utilisateur" as User
+actor "Administrateur" as Admin
 actor "Serveur" as Server
 
 rectangle "Système de Messagerie" {
@@ -19,9 +20,12 @@ rectangle "Système de Messagerie" {
     usecase "Lister les groupes" as UC9
     usecase "Changer la couleur du prompt" as UC10
     usecase "Se déconnecter" as UC11
-    usecase "Gérer la mémoire partagée" as UC12
-    usecase "Synchroniser l'accès" as UC13
-    usecase "Router les messages" as UC14
+    usecase "Exclure un utilisateur" as UC12
+    usecase "Promouvoir un administrateur" as UC13
+    usecase "Gérer la mémoire partagée" as UC14
+    usecase "Synchroniser l'accès" as UC15
+    usecase "Router les messages" as UC16
+    usecase "Logger les événements" as UC17
 }
 
 User --> UC1
@@ -30,19 +34,36 @@ User --> UC3
 User --> UC4
 User --> UC5
 User --> UC6
-User --> UC7
 User --> UC8
 User --> UC9
 User --> UC10
 User --> UC11
 
-Server --> UC12
-Server --> UC13
+Admin --> UC1
+Admin --> UC2
+Admin --> UC3
+Admin --> UC4
+Admin --> UC5
+Admin --> UC6
+Admin --> UC7
+Admin --> UC8
+Admin --> UC9
+Admin --> UC10
+Admin --> UC11
+Admin --> UC12
+Admin --> UC13
+
 Server --> UC14
+Server --> UC15
+Server --> UC16
+Server --> UC17
 
 UC2 ..> UC4 : <<requires>>
 UC7 ..> UC6 : <<requires>>
-UC14 ..> UC13 : <<uses>>
+UC12 ..> UC4 : <<requires>>
+UC13 ..> UC4 : <<requires>>
+UC16 ..> UC15 : <<uses>>
+UC17 ..> UC15 : <<uses>>
 
 note right of UC3
   Permet d'envoyer un message
@@ -51,12 +72,28 @@ end note
 
 note right of UC7
   Fusionne deux groupes
-  en un seul
+  en un seul (admin uniquement)
 end note
 
 note right of UC10
   Change la couleur ANSI
-  du prompt utilisateur
+  du groupe (tous les membres)
+end note
+
+note right of UC12
+  Exclure un utilisateur
+  d'un groupe (admin uniquement)
+end note
+
+note right of UC13
+  Promouvoir un utilisateur
+  en administrateur (admin uniquement)
+end note
+
+note right of Admin
+  Un administrateur hérite
+  de tous les droits utilisateur
+  plus des droits de gestion
 end note
 
 @enduml
