@@ -26,15 +26,18 @@ void cleanup_and_exit(int signum) {
         shm_detach(g_shm);
     }
 
-    if (g_shmid >= 0) {
-        shm_destroy(g_shmid);
-    }
+    // Ne pas détruire la mémoire partagée pour conserver les données
+    // (groupes, couleurs, etc.) entre les redémarrages
+    // if (g_shmid >= 0) {
+    //     shm_destroy(g_shmid);
+    // }
 
-    if (g_semid >= 0) {
-        sem_destroy(g_semid);
-    }
+    // Ne pas détruire le sémaphore non plus
+    // if (g_semid >= 0) {
+    //     sem_destroy(g_semid);
+    // }
 
-    printf("Nettoyage terminé\n");
+    printf("Nettoyage terminé (mémoire partagée conservée)\n");
     exit(0);
 }
 
@@ -60,11 +63,14 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 user = user_find(shm, msg->sender);
             }
 
-            // Créer le groupe s'il n'existe pas (le créateur devient admin)
+            // Vérifier si le groupe existe déjà
             Group *group = group_find(shm, msg->group);
+            int group_created = 0;
             if (group == NULL) {
+                // Créer le groupe (le créateur devient admin)
                 group_create(shm, msg->group, msg->sender);
                 group = group_find(shm, msg->group);
+                group_created = 1;
             }
 
             // Ajouter l'utilisateur au groupe
@@ -77,13 +83,25 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 // Envoyer une confirmation au client qui s'est connecté
                 if (user != NULL) {
                     Message confirm;
-                    message_create(&confirm, MSG_JOIN, msg->sender, NULL, msg->group, "");
+                    char confirm_content[MAX_MESSAGE];
+                    if (group_created) {
+                        snprintf(confirm_content, MAX_MESSAGE, "CREATED");
+                    } else {
+                        snprintf(confirm_content, MAX_MESSAGE, "JOINED");
+                    }
+                    message_create(&confirm, MSG_JOIN, msg->sender, NULL, msg->group, confirm_content);
                     socket_send(sockfd, &confirm, &user->addr);
                 }
 
-                printf(">>> %s a rejoint %s\n", msg->sender, msg->group);
-                snprintf(log_buffer, sizeof(log_buffer), "%s a rejoint le groupe %s (%s:%d)",
-                        msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+                if (group_created) {
+                    printf(">>> %s a créé et rejoint %s (admin)\n", msg->sender, msg->group);
+                    snprintf(log_buffer, sizeof(log_buffer), "%s a créé et rejoint le groupe %s (%s:%d)",
+                            msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+                } else {
+                    printf(">>> %s a rejoint %s\n", msg->sender, msg->group);
+                    snprintf(log_buffer, sizeof(log_buffer), "%s a rejoint le groupe %s (%s:%d)",
+                            msg->sender, msg->group, ip_str, ntohs(client_addr->sin_port));
+                }
                 log_event(g_logfile, "JOIN", log_buffer);
             } else {
                 // Échec : envoyer un message d'erreur au client
@@ -136,6 +154,18 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 snprintf(log_buffer, sizeof(log_buffer), "%s -> %s: %s",
                         msg->sender, msg->recipient, msg->content);
                 log_event(g_logfile, "PRIVATE", log_buffer);
+            } else {
+                // L'utilisateur n'existe pas, envoyer une erreur à l'expéditeur
+                User *sender = user_find(shm, msg->sender);
+                if (sender != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Erreur : l'utilisateur '%s' n'existe pas ou n'est pas connecté", msg->recipient);
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &sender->addr);
+                }
+                printf(">>> [PRIVÉ] Échec: utilisateur %s non trouvé\n", msg->recipient);
             }
             break;
         }
@@ -229,6 +259,24 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 Group *g2 = group_find(shm, group2);
 
                 if (g1 == NULL || g2 == NULL) {
+                    // Envoyer un message d'erreur au client
+                    User *user = user_find(shm, msg->sender);
+                    if (user != NULL) {
+                        Message error_msg;
+                        char error_content[MAX_MESSAGE];
+                        if (g1 == NULL && g2 == NULL) {
+                            snprintf(error_content, MAX_MESSAGE,
+                                    "Erreur : les groupes '%s' et '%s' n'existent pas", group1, group2);
+                        } else if (g1 == NULL) {
+                            snprintf(error_content, MAX_MESSAGE,
+                                    "Erreur : le groupe '%s' n'existe pas", group1);
+                        } else {
+                            snprintf(error_content, MAX_MESSAGE,
+                                    "Erreur : le groupe '%s' n'existe pas", group2);
+                        }
+                        message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                        socket_send(sockfd, &error_msg, &user->addr);
+                    }
                     printf(">>> Un des groupes à fusionner n'existe pas\n");
                     break;
                 }
@@ -330,7 +378,7 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                     Message notif;
                     char notif_content[MAX_MESSAGE];
                     snprintf(notif_content, MAX_MESSAGE,
-                            "Vous avez été exclu du groupe %s par %s", msg->group, msg->sender);
+                            "Vous avez été kick par %s", msg->sender);
                     message_create(&notif, MSG_LEAVE, "Serveur", NULL, msg->group, notif_content);
                     socket_send(sockfd, &notif, &kicked_user->addr);
                 }
@@ -376,8 +424,26 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 break;
             }
 
+            // Vérifier que l'utilisateur à promouvoir existe
+            User *user_to_promote = user_find(shm, msg->content);
+            if (user_to_promote == NULL) {
+                // Envoyer message d'erreur
+                User *sender = user_find(shm, msg->sender);
+                if (sender != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Erreur : l'utilisateur '%s' n'existe pas", msg->content);
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &sender->addr);
+                }
+                printf(">>> Échec : utilisateur %s n'existe pas\n", msg->content);
+                break;
+            }
+
             // Promouvoir l'utilisateur
-            if (group_add_admin(group, msg->content) == 0) {
+            int promote_result = group_add_admin(group, msg->content);
+            if (promote_result == 0) {
                 printf(">>> %s (admin) a promu %s administrateur du groupe %s\n",
                        msg->sender, msg->content, msg->group);
                 snprintf(log_buffer, sizeof(log_buffer),
@@ -404,6 +470,140 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 message_create(&group_notif, MSG_PUBLIC, "Serveur",
                              NULL, msg->group, group_notif_content);
                 message_send_to_group(sockfd, shm, &group_notif);
+            } else {
+                // Envoyer message d'erreur (déjà admin ou pas dans le groupe)
+                User *sender = user_find(shm, msg->sender);
+                if (sender != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+
+                    // Vérifier si l'utilisateur est déjà admin
+                    if (group_is_admin(group, msg->content)) {
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Erreur : '%s' est déjà administrateur du groupe", msg->content);
+                    } else {
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Erreur : '%s' n'est pas membre du groupe", msg->content);
+                    }
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &sender->addr);
+                }
+                printf(">>> Échec : impossible de promouvoir %s\n", msg->content);
+            }
+            break;
+        }
+
+        case MSG_DEMOTE_ADMIN: {
+            // Format du contenu: username à rétrograder
+            // Le groupe est dans msg->group
+            Group *group = group_find(shm, msg->group);
+            if (group == NULL) {
+                printf(">>> Groupe %s non trouvé\n", msg->group);
+                break;
+            }
+
+            // Vérifier que l'utilisateur qui rétrograde est admin
+            if (!group_is_admin(group, msg->sender)) {
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Seuls les administrateurs peuvent rétrograder des administrateurs");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                printf(">>> %s (non-admin) a tenté de rétrograder %s dans %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (non-admin) a tenté de rétrograder %s dans %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "DEMOTE_DENIED", log_buffer);
+                break;
+            }
+
+            // Ne pas permettre de se rétrograder soi-même
+            if (strcmp(msg->sender, msg->content) == 0) {
+                User *user = user_find(shm, msg->sender);
+                if (user != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Vous ne pouvez pas vous rétrograder vous-même");
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &user->addr);
+                }
+                break;
+            }
+
+            // Vérifier que l'utilisateur à rétrograder existe
+            User *user_to_demote = user_find(shm, msg->content);
+            if (user_to_demote == NULL) {
+                // Envoyer message d'erreur
+                User *sender = user_find(shm, msg->sender);
+                if (sender != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+                    snprintf(error_content, MAX_MESSAGE,
+                            "Erreur : l'utilisateur '%s' n'existe pas", msg->content);
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &sender->addr);
+                }
+                printf(">>> Échec : utilisateur %s n'existe pas\n", msg->content);
+                break;
+            }
+
+            // Rétrograder l'utilisateur
+            int demote_result = group_remove_admin(group, msg->content);
+            if (demote_result == 0) {
+                printf(">>> %s (admin) a rétrogradé %s dans le groupe %s\n",
+                       msg->sender, msg->content, msg->group);
+                snprintf(log_buffer, sizeof(log_buffer),
+                        "%s (admin) a rétrogradé %s dans le groupe %s",
+                        msg->sender, msg->content, msg->group);
+                log_event(g_logfile, "DEMOTE_ADMIN", log_buffer);
+
+                // Notifier l'utilisateur rétrogradé
+                User *demoted_user = user_find(shm, msg->content);
+                if (demoted_user != NULL) {
+                    Message notif;
+                    char notif_content[MAX_MESSAGE];
+                    snprintf(notif_content, MAX_MESSAGE,
+                            "Vous n'êtes plus administrateur du groupe %s", msg->group);
+                    message_create(&notif, MSG_PUBLIC, "Serveur", NULL, NULL, notif_content);
+                    socket_send(sockfd, &notif, &demoted_user->addr);
+                }
+
+                // Notifier le groupe
+                Message group_notif;
+                char group_notif_content[MAX_MESSAGE];
+                snprintf(group_notif_content, MAX_MESSAGE,
+                        "%s n'est plus administrateur du groupe", msg->content);
+                message_create(&group_notif, MSG_PUBLIC, "Serveur",
+                             NULL, msg->group, group_notif_content);
+                message_send_to_group(sockfd, shm, &group_notif);
+            } else {
+                // Envoyer message d'erreur
+                User *sender = user_find(shm, msg->sender);
+                if (sender != NULL) {
+                    Message error_msg;
+                    char error_content[MAX_MESSAGE];
+
+                    // Vérifier si c'est le dernier admin
+                    if (group->admin_count <= 1) {
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Erreur : impossible de rétrograder le dernier administrateur");
+                    } else if (!group_is_admin(group, msg->content)) {
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Erreur : '%s' n'est pas administrateur du groupe", msg->content);
+                    } else {
+                        snprintf(error_content, MAX_MESSAGE,
+                                "Erreur : impossible de rétrograder '%s'", msg->content);
+                    }
+                    message_create(&error_msg, MSG_PUBLIC, "Serveur", NULL, NULL, error_content);
+                    socket_send(sockfd, &error_msg, &sender->addr);
+                }
+                printf(">>> Échec : impossible de rétrograder %s\n", msg->content);
             }
             break;
         }
@@ -480,10 +680,20 @@ int main(int argc, char **argv) {
     if (shm_attach(g_shmid, &g_shm) == -1) {
         return EXIT_FAILURE;
     }
-    
-    // Initialiser la mémoire partagée
-    memset(g_shm, 0, sizeof(SharedMemory));
-    printf("Mémoire partagée initialisée (ID: %d)\n", g_shmid);
+
+    // Vérifier si la mémoire partagée contient déjà des données
+    if (g_shm->user_count == 0 && g_shm->group_count == 0) {
+        // Initialiser la mémoire partagée seulement si elle est vide
+        memset(g_shm, 0, sizeof(SharedMemory));
+        printf("Mémoire partagée initialisée (ID: %d)\n", g_shmid);
+    } else {
+        // Nettoyer les utilisateurs actifs (ils doivent se reconnecter)
+        for (int i = 0; i < g_shm->user_count; i++) {
+            g_shm->users[i].active = 0;
+        }
+        printf("Mémoire partagée existante réutilisée (ID: %d) - %d groupes, %d utilisateurs\n",
+               g_shmid, g_shm->group_count, g_shm->user_count);
+    }
     
     // Créer le sémaphore
     key_t sem_key = ftok(SEM_KEY_FILE, '1');
