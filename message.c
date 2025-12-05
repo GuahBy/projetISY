@@ -51,8 +51,14 @@ void message_display(const Message *msg, const char *color) {
             break;
             
         case MSG_LEAVE:
-            printf("%s[%s] %s a quitté le groupe %s%s\n",
-                   COLOR_YELLOW, time_str, msg->sender, msg->group, COLOR_RESET);
+            if (strlen(msg->content) > 0) {
+                // Message spécial (kick, etc.)
+                printf("%s[%s] %s%s\n",
+                       COLOR_YELLOW, time_str, msg->content, COLOR_RESET);
+            } else {
+                printf("%s[%s] %s a quitté le groupe %s%s\n",
+                       COLOR_YELLOW, time_str, msg->sender, msg->group, COLOR_RESET);
+            }
             break;
             
         case MSG_DISCONNECT:

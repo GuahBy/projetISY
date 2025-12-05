@@ -268,6 +268,42 @@ int group_add_admin(Group *group, const char *username) {
     return 0;
 }
 
+// Retirer les droits d'administrateur à un utilisateur
+int group_remove_admin(Group *group, const char *username) {
+    if (group == NULL || username == NULL) {
+        return -1;
+    }
+
+    // Vérifier si l'utilisateur est administrateur
+    int admin_index = -1;
+    for (int i = 0; i < group->admin_count; i++) {
+        if (strcmp(group->admins[i], username) == 0) {
+            admin_index = i;
+            break;
+        }
+    }
+
+    if (admin_index == -1) {
+        fprintf(stderr, "Utilisateur %s n'est pas administrateur\n", username);
+        return -1;
+    }
+
+    // Empêcher de rétrograder le dernier administrateur
+    if (group->admin_count <= 1) {
+        fprintf(stderr, "Impossible de rétrograder le dernier administrateur du groupe\n");
+        return -1;
+    }
+
+    // Retirer l'utilisateur de la liste des admins
+    for (int i = admin_index; i < group->admin_count - 1; i++) {
+        strcpy(group->admins[i], group->admins[i + 1]);
+    }
+    group->admin_count--;
+
+    printf("Utilisateur %s n'est plus administrateur du groupe %s\n", username, group->name);
+    return 0;
+}
+
 // Exclure un utilisateur d'un groupe (avec gestion des admins)
 int group_kick_user(SharedMemory *shm, const char *group_name, const char *username) {
     Group *group = group_find(shm, group_name);

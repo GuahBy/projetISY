@@ -46,7 +46,8 @@ typedef enum {
     MSG_CHANGE_COLOR,  // Changer la couleur du prompt
     MSG_DISCONNECT,    // Déconnexion
     MSG_KICK_USER,     // Exclure un utilisateur (admin uniquement)
-    MSG_PROMOTE_ADMIN  // Promouvoir un utilisateur en administrateur (admin uniquement)
+    MSG_PROMOTE_ADMIN, // Promouvoir un utilisateur en administrateur (admin uniquement)
+    MSG_DEMOTE_ADMIN   // Rétrograder un administrateur (admin uniquement)
 } MessageType;
 
 // Structure pour un message
@@ -128,6 +129,7 @@ Group* group_find(SharedMemory *shm, const char *group_name);
 int group_merge(SharedMemory *shm, const char *group1, const char *group2);
 int group_is_admin(Group *group, const char *username);
 int group_add_admin(Group *group, const char *username);
+int group_remove_admin(Group *group, const char *username);
 int group_kick_user(SharedMemory *shm, const char *group_name, const char *username);
 
 // Prototypes des fonctions - Gestion messages

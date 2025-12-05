@@ -53,7 +53,14 @@ void* receive_thread(void *arg) {
                 // Confirmation de connexion au groupe
                 strncpy(g_current_group, msg.group, MAX_GROUP_NAME - 1);
                 g_current_group[MAX_GROUP_NAME - 1] = '\0';
-                printf("%sConnecté au groupe %s%s\n", COLOR_GREEN, msg.group, COLOR_RESET);
+
+                // Afficher le message approprié en fonction du contenu
+                if (strcmp(msg.content, "CREATED") == 0) {
+                    printf("%sGroupe '%s' créé avec succès. Vous êtes administrateur.%s\n",
+                           COLOR_GREEN, msg.group, COLOR_RESET);
+                } else {
+                    printf("%sConnecté au groupe '%s'%s\n", COLOR_GREEN, msg.group, COLOR_RESET);
+                }
 
                 // Récupérer la couleur du groupe depuis la mémoire partagée
                 if (g_shm != NULL) {
@@ -98,13 +105,14 @@ void* receive_thread(void *arg) {
 
 void print_help(void) {
     printf("\n=== COMMANDES DISPONIBLES ===\n");
-    printf("  /join <groupe>         - Rejoindre un groupe\n");
+    printf("Attention : les commandes sont sensibles à la casse\n\n");
+    printf("  /join <groupe>         - Rejoindre un groupe (créé automatiquement si inexistant)\n");
     printf("  /leave                 - Quitter le groupe actuel\n");
     printf("  /msg <user> <message>  - Envoyer un message privé\n");
-    printf("  /create <groupe>       - Créer un nouveau groupe\n");
     printf("  /merge <g1> <g2>       - Fusionner deux groupes (admin uniquement)\n");
     printf("  /kick <user>           - Exclure un utilisateur (admin uniquement)\n");
     printf("  /promote <user>        - Promouvoir un utilisateur admin (admin uniquement)\n");
+    printf("  /demote <user>         - Rétrograder un administrateur (admin uniquement)\n");
     printf("  /users                 - Lister les utilisateurs\n");
     printf("  /groups                - Lister les groupes\n");
     printf("  /color <couleur>       - Changer la couleur du prompt (admin uniquement)\n");
@@ -141,27 +149,39 @@ int process_command(char *input) {
             clear_screen();
         }
         else if (strcmp(input, "/users") == 0) {
-            if (g_shm != NULL) {
+            if (g_shm != NULL && g_semid >= 0) {
                 sem_p(g_semid);
                 display_users(g_shm);
                 sem_v(g_semid);
+            } else {
+                printf("Erreur : impossible d'accéder à la liste des utilisateurs\n");
+                printf("Vérifiez que le serveur est démarré.\n");
             }
         }
         else if (strcmp(input, "/groups") == 0) {
-            if (g_shm != NULL) {
+            if (g_shm != NULL && g_semid >= 0) {
                 sem_p(g_semid);
                 display_groups(g_shm);
                 sem_v(g_semid);
+            } else {
+                printf("Erreur : impossible d'accéder à la liste des groupes\n");
+                printf("Vérifiez que le serveur est démarré.\n");
             }
         }
         else if (strcmp(input, "/leave") == 0) {
             if (strlen(g_current_group) == 0) {
                 printf("Vous n'êtes dans aucun groupe\n");
             } else {
+                char temp_group[MAX_GROUP_NAME];
+                strncpy(temp_group, g_current_group, MAX_GROUP_NAME - 1);
+                temp_group[MAX_GROUP_NAME - 1] = '\0';
+
                 Message msg;
                 message_create(&msg, MSG_LEAVE, g_username, NULL, g_current_group, "");
                 socket_send(g_sockfd, &msg, &g_server_addr);
                 g_current_group[0] = '\0';
+
+                printf("Vous avez quitté le groupe %s\n", temp_group);
             }
         }
         else if (sscanf(input, "/join %s", arg1) == 1) {
@@ -175,14 +195,14 @@ int process_command(char *input) {
             // Rejoindre le nouveau groupe
             Message msg;
             message_create(&msg, MSG_JOIN, g_username, NULL, arg1, "");
-            socket_send(g_sockfd, &msg, &g_server_addr);
+
+            if (socket_send(g_sockfd, &msg, &g_server_addr) < 0) {
+                printf("Erreur : impossible d'envoyer la requête au serveur\n");
+            } else {
+                printf("Connexion au groupe '%s' en cours...\n", arg1);
+                printf("(Si vous ne recevez pas de confirmation, vérifiez que le serveur est démarré)\n");
+            }
             // Ne pas mettre à jour g_current_group ici, attendre la confirmation du serveur
-        }
-        else if (sscanf(input, "/create %s", arg1) == 1) {
-            Message msg;
-            message_create(&msg, MSG_CREATE_GROUP, g_username, NULL, NULL, arg1);
-            socket_send(g_sockfd, &msg, &g_server_addr);
-            printf("Demande de création du groupe %s...\n", arg1);
         }
         else if (sscanf(input, "/merge %s %s", arg1, arg2) == 2) {
             char content[MAX_MESSAGE];
@@ -243,6 +263,19 @@ int process_command(char *input) {
             message_create(&msg, MSG_PROMOTE_ADMIN, g_username, NULL, g_current_group, arg1);
             socket_send(g_sockfd, &msg, &g_server_addr);
             printf("Demande de promotion de %s comme administrateur de %s...\n", arg1, g_current_group);
+        }
+        else if (sscanf(input, "/demote %s", arg1) == 1) {
+            // Vérifier qu'on est dans un groupe
+            if (strlen(g_current_group) == 0) {
+                printf("Vous devez être dans un groupe pour rétrograder un administrateur\n");
+                return 0;
+            }
+
+            // Envoyer la demande de rétrogradation au serveur
+            Message msg;
+            message_create(&msg, MSG_DEMOTE_ADMIN, g_username, NULL, g_current_group, arg1);
+            socket_send(g_sockfd, &msg, &g_server_addr);
+            printf("Demande de rétrogradation de %s dans %s...\n", arg1, g_current_group);
         }
         else if (strncmp(input, "/msg ", 5) == 0) {
             // Format: /msg username message
