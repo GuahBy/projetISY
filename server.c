@@ -81,13 +81,25 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
                 message_send_to_group(sockfd, shm, msg);
 
                 // Envoyer une confirmation au client qui s'est connecté
-                if (user != NULL) {
+                if (user != NULL && group != NULL) {
                     Message confirm;
                     char confirm_content[MAX_MESSAGE];
+                    // Inclure la couleur du groupe dans la confirmation
+                    // Format: "STATUS:COLOR"
+                    const char *color_name = "green";  // par défaut
+
+                    if (strcmp(group->color, COLOR_RED) == 0) color_name = "red";
+                    else if (strcmp(group->color, COLOR_GREEN) == 0) color_name = "green";
+                    else if (strcmp(group->color, COLOR_YELLOW) == 0) color_name = "yellow";
+                    else if (strcmp(group->color, COLOR_BLUE) == 0) color_name = "blue";
+                    else if (strcmp(group->color, COLOR_MAGENTA) == 0) color_name = "magenta";
+                    else if (strcmp(group->color, COLOR_CYAN) == 0) color_name = "cyan";
+                    else if (strcmp(group->color, COLOR_WHITE) == 0) color_name = "white";
+
                     if (group_created) {
-                        snprintf(confirm_content, MAX_MESSAGE, "CREATED");
+                        snprintf(confirm_content, MAX_MESSAGE, "CREATED:%s", color_name);
                     } else {
-                        snprintf(confirm_content, MAX_MESSAGE, "JOINED");
+                        snprintf(confirm_content, MAX_MESSAGE, "JOINED:%s", color_name);
                     }
                     message_create(&confirm, MSG_JOIN, msg->sender, NULL, msg->group, confirm_content);
                     socket_send(sockfd, &confirm, &user->addr);
@@ -616,11 +628,95 @@ void handle_client_message(int sockfd, SharedMemory *shm, int semid,
             break;
         }
         
-        case MSG_LIST_USERS:
-        case MSG_LIST_GROUPS:
-            // Ces commandes sont gérées côté client
+        case MSG_CONNECT: {
+            // Répondre avec un accusé de réception
+            User *user = user_find(shm, msg->sender);
+            if (user == NULL) {
+                user_add(shm, msg->sender, client_addr, ntohs(client_addr->sin_port));
+                user = user_find(shm, msg->sender);
+            }
+
+            if (user != NULL) {
+                Message ack;
+                message_create(&ack, MSG_CONNECT_ACK, "Serveur", msg->sender, NULL, "OK");
+                socket_send(sockfd, &ack, &user->addr);
+            }
+
+            printf(">>> %s s'est connecté\n", msg->sender);
+            snprintf(log_buffer, sizeof(log_buffer), "%s s'est connecté", msg->sender);
+            log_event(g_logfile, "CONNECT", log_buffer);
             break;
-            
+        }
+
+        case MSG_LIST_USERS: {
+            // Envoyer la liste des utilisateurs au client
+            User *requester = user_find(shm, msg->sender);
+            if (requester == NULL) {
+                break;
+            }
+
+            // Construire la liste des utilisateurs dans le contenu du message
+            char user_list[MAX_MESSAGE * 4] = "";  // Buffer plus grand pour la liste
+            int active_users = 0;
+
+            for (int i = 0; i < shm->user_count; i++) {
+                if (shm->users[i].active) {
+                    active_users++;
+                    char user_info[128];
+                    snprintf(user_info, sizeof(user_info), "%s:%s|",
+                            shm->users[i].username,
+                            shm->users[i].current_group[0] ? shm->users[i].current_group : "aucun");
+
+                    // Vérifier qu'on ne dépasse pas la taille du buffer
+                    if (strlen(user_list) + strlen(user_info) < sizeof(user_list) - 1) {
+                        strcat(user_list, user_info);
+                    }
+                }
+            }
+
+            Message response;
+            message_create(&response, MSG_LIST_USERS_RESPONSE, "Serveur", msg->sender, NULL, user_list);
+            socket_send(sockfd, &response, &requester->addr);
+
+            printf(">>> %s a demandé la liste des utilisateurs (%d actifs)\n", msg->sender, active_users);
+            break;
+        }
+
+        case MSG_LIST_GROUPS: {
+            // Envoyer la liste des groupes au client
+            User *requester = user_find(shm, msg->sender);
+            if (requester == NULL) {
+                break;
+            }
+
+            // Construire la liste des groupes dans le contenu du message
+            char group_list[MAX_MESSAGE * 4] = "";  // Buffer plus grand pour la liste
+            int active_groups = 0;
+
+            for (int i = 0; i < shm->group_count; i++) {
+                if (shm->groups[i].active && shm->groups[i].user_count > 0) {
+                    active_groups++;
+                    char group_info[128];
+                    snprintf(group_info, sizeof(group_info), "%s:%d:%d|",
+                            shm->groups[i].name,
+                            shm->groups[i].user_count,
+                            shm->groups[i].admin_count);
+
+                    // Vérifier qu'on ne dépasse pas la taille du buffer
+                    if (strlen(group_list) + strlen(group_info) < sizeof(group_list) - 1) {
+                        strcat(group_list, group_info);
+                    }
+                }
+            }
+
+            Message response;
+            message_create(&response, MSG_LIST_GROUPS_RESPONSE, "Serveur", msg->sender, NULL, group_list);
+            socket_send(sockfd, &response, &requester->addr);
+
+            printf(">>> %s a demandé la liste des groupes (%d actifs)\n", msg->sender, active_groups);
+            break;
+        }
+
         default:
             printf(">>> Type de message inconnu: %d\n", msg->type);
             break;

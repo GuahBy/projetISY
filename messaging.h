@@ -47,7 +47,11 @@ typedef enum {
     MSG_DISCONNECT,    // Déconnexion
     MSG_KICK_USER,     // Exclure un utilisateur (admin uniquement)
     MSG_PROMOTE_ADMIN, // Promouvoir un utilisateur en administrateur (admin uniquement)
-    MSG_DEMOTE_ADMIN   // Rétrograder un administrateur (admin uniquement)
+    MSG_DEMOTE_ADMIN,  // Rétrograder un administrateur (admin uniquement)
+    MSG_LIST_USERS_RESPONSE,  // Réponse du serveur avec la liste des utilisateurs
+    MSG_LIST_GROUPS_RESPONSE, // Réponse du serveur avec la liste des groupes
+    MSG_CONNECT,       // Test de connexion au serveur
+    MSG_CONNECT_ACK    // Accusé de réception de connexion
 } MessageType;
 
 // Structure pour un message

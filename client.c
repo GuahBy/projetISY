@@ -13,6 +13,9 @@ static int g_running = 1;
 static SharedMemory *g_shm = NULL;
 static int g_shmid = -1;
 static int g_semid = -1;
+static int g_connected_to_server = 0;
+static char g_list_buffer[MAX_MESSAGE * 4];
+static int g_list_received = 0;
 
 void cleanup_and_exit(int signum) {
     printf("\n\nDéconnexion...\n");
@@ -49,29 +52,54 @@ void* receive_thread(void *arg) {
             printf("\n");
 
             // Gérer les cas spéciaux avant d'afficher
-            if (msg.type == MSG_JOIN && strcmp(msg.sender, g_username) == 0) {
+            if (msg.type == MSG_CONNECT_ACK) {
+                // Accusé de réception de connexion
+                g_connected_to_server = 1;
+            } else if (msg.type == MSG_JOIN && strcmp(msg.sender, g_username) == 0) {
                 // Confirmation de connexion au groupe
                 strncpy(g_current_group, msg.group, MAX_GROUP_NAME - 1);
                 g_current_group[MAX_GROUP_NAME - 1] = '\0';
 
-                // Afficher le message approprié en fonction du contenu
-                if (strcmp(msg.content, "CREATED") == 0) {
+                // Parser le contenu pour extraire le statut et la couleur
+                // Format: "STATUS:COLOR" ou "STATUS"
+                char status[32] = "";
+                char color_name[32] = "green";  // Par défaut
+
+                if (sscanf(msg.content, "%[^:]:%s", status, color_name) < 1) {
+                    strncpy(status, msg.content, sizeof(status) - 1);
+                }
+
+                // Convertir le nom de couleur en code ANSI
+                const char *color_code = COLOR_GREEN;
+                if (strcmp(color_name, "red") == 0) color_code = COLOR_RED;
+                else if (strcmp(color_name, "green") == 0) color_code = COLOR_GREEN;
+                else if (strcmp(color_name, "yellow") == 0) color_code = COLOR_YELLOW;
+                else if (strcmp(color_name, "blue") == 0) color_code = COLOR_BLUE;
+                else if (strcmp(color_name, "magenta") == 0) color_code = COLOR_MAGENTA;
+                else if (strcmp(color_name, "cyan") == 0) color_code = COLOR_CYAN;
+                else if (strcmp(color_name, "white") == 0) color_code = COLOR_WHITE;
+
+                // Appliquer la couleur
+                strncpy(g_user_color, color_code, sizeof(g_user_color) - 1);
+                g_user_color[sizeof(g_user_color) - 1] = '\0';
+
+                // Afficher le message approprié en fonction du statut
+                if (strcmp(status, "CREATED") == 0) {
                     printf("%sGroupe '%s' créé avec succès. Vous êtes administrateur.%s\n",
                            COLOR_GREEN, msg.group, COLOR_RESET);
                 } else {
                     printf("%sConnecté au groupe '%s'%s\n", COLOR_GREEN, msg.group, COLOR_RESET);
                 }
-
-                // Récupérer la couleur du groupe depuis la mémoire partagée
-                if (g_shm != NULL) {
-                    sem_p(g_semid);
-                    Group *group = group_find(g_shm, msg.group);
-                    if (group != NULL && strlen(group->color) > 0) {
-                        strncpy(g_user_color, group->color, sizeof(g_user_color) - 1);
-                        g_user_color[sizeof(g_user_color) - 1] = '\0';
-                    }
-                    sem_v(g_semid);
-                }
+            } else if (msg.type == MSG_LIST_USERS_RESPONSE) {
+                // Réponse avec la liste des utilisateurs
+                strncpy(g_list_buffer, msg.content, sizeof(g_list_buffer) - 1);
+                g_list_buffer[sizeof(g_list_buffer) - 1] = '\0';
+                g_list_received = 1;
+            } else if (msg.type == MSG_LIST_GROUPS_RESPONSE) {
+                // Réponse avec la liste des groupes
+                strncpy(g_list_buffer, msg.content, sizeof(g_list_buffer) - 1);
+                g_list_buffer[sizeof(g_list_buffer) - 1] = '\0';
+                g_list_received = 1;
             } else if (msg.type == MSG_CHANGE_COLOR) {
                 // Changement de couleur du groupe
                 const char *color_code = COLOR_GREEN;
@@ -149,24 +177,92 @@ int process_command(char *input) {
             clear_screen();
         }
         else if (strcmp(input, "/users") == 0) {
-            if (g_shm != NULL && g_semid >= 0) {
-                sem_p(g_semid);
-                display_users(g_shm);
-                sem_v(g_semid);
-            } else {
-                printf("Erreur : impossible d'accéder à la liste des utilisateurs\n");
-                printf("Vérifiez que le serveur est démarré.\n");
+            // Envoyer une requête au serveur
+            Message msg;
+            message_create(&msg, MSG_LIST_USERS, g_username, NULL, NULL, "");
+
+            if (socket_send(g_sockfd, &msg, &g_server_addr) < 0) {
+                printf("Erreur : impossible d'envoyer la requête au serveur\n");
+                return 0;
             }
+
+            // Attendre la réponse (avec timeout)
+            g_list_received = 0;
+            int timeout = 0;
+            while (!g_list_received && timeout < 50) {  // 500ms max
+                usleep(10000);  // 10ms
+                timeout++;
+            }
+
+            if (!g_list_received) {
+                printf("Erreur : pas de réponse du serveur\n");
+                printf("Vérifiez que le serveur est démarré.\n");
+                return 0;
+            }
+
+            // Afficher la liste des utilisateurs
+            printf("\n=== UTILISATEURS CONNECTÉS ===\n");
+            if (strlen(g_list_buffer) == 0) {
+                printf("Aucun utilisateur connecté\n");
+            } else {
+                char *token = strtok(g_list_buffer, "|");
+                int count = 0;
+                while (token != NULL) {
+                    char username[MAX_USERNAME];
+                    char group[MAX_GROUP_NAME];
+                    if (sscanf(token, "%[^:]:%s", username, group) == 2) {
+                        printf("  - %s (groupe: %s)\n", username, group);
+                        count++;
+                    }
+                    token = strtok(NULL, "|");
+                }
+                printf("\nTotal: %d utilisateur(s)\n", count);
+            }
+            printf("\n");
         }
         else if (strcmp(input, "/groups") == 0) {
-            if (g_shm != NULL && g_semid >= 0) {
-                sem_p(g_semid);
-                display_groups(g_shm);
-                sem_v(g_semid);
-            } else {
-                printf("Erreur : impossible d'accéder à la liste des groupes\n");
-                printf("Vérifiez que le serveur est démarré.\n");
+            // Envoyer une requête au serveur
+            Message msg;
+            message_create(&msg, MSG_LIST_GROUPS, g_username, NULL, NULL, "");
+
+            if (socket_send(g_sockfd, &msg, &g_server_addr) < 0) {
+                printf("Erreur : impossible d'envoyer la requête au serveur\n");
+                return 0;
             }
+
+            // Attendre la réponse (avec timeout)
+            g_list_received = 0;
+            int timeout = 0;
+            while (!g_list_received && timeout < 50) {  // 500ms max
+                usleep(10000);  // 10ms
+                timeout++;
+            }
+
+            if (!g_list_received) {
+                printf("Erreur : pas de réponse du serveur\n");
+                printf("Vérifiez que le serveur est démarré.\n");
+                return 0;
+            }
+
+            // Afficher la liste des groupes
+            printf("\n=== GROUPES ACTIFS ===\n");
+            if (strlen(g_list_buffer) == 0) {
+                printf("Aucun groupe actif\n");
+            } else {
+                char *token = strtok(g_list_buffer, "|");
+                int count = 0;
+                while (token != NULL) {
+                    char groupname[MAX_GROUP_NAME];
+                    int user_count, admin_count;
+                    if (sscanf(token, "%[^:]:%d:%d", groupname, &user_count, &admin_count) == 3) {
+                        printf("  - %s (%d membre(s), %d admin(s))\n", groupname, user_count, admin_count);
+                        count++;
+                    }
+                    token = strtok(NULL, "|");
+                }
+                printf("\nTotal: %d groupe(s)\n", count);
+            }
+            printf("\n");
         }
         else if (strcmp(input, "/leave") == 0) {
             if (strlen(g_current_group) == 0) {
@@ -180,6 +276,10 @@ int process_command(char *input) {
                 message_create(&msg, MSG_LEAVE, g_username, NULL, g_current_group, "");
                 socket_send(g_sockfd, &msg, &g_server_addr);
                 g_current_group[0] = '\0';
+
+                // Réinitialiser la couleur à vert par défaut
+                strncpy(g_user_color, COLOR_GREEN, sizeof(g_user_color) - 1);
+                g_user_color[sizeof(g_user_color) - 1] = '\0';
 
                 printf("Vous avez quitté le groupe %s\n", temp_group);
             }
@@ -389,8 +489,34 @@ int main(int argc, char **argv) {
         perror("Erreur pthread_create");
         return EXIT_FAILURE;
     }
-    
-    printf("Connecté! Tapez /help pour l'aide.\n\n");
+
+    // Tester la connexion au serveur
+    printf("Connexion au serveur...\n");
+    Message connect_msg;
+    message_create(&connect_msg, MSG_CONNECT, g_username, NULL, NULL, "");
+
+    if (socket_send(g_sockfd, &connect_msg, &g_server_addr) < 0) {
+        fprintf(stderr, "Erreur : impossible d'envoyer la requête de connexion\n");
+        return EXIT_FAILURE;
+    }
+
+    // Attendre la confirmation avec timeout (2 secondes)
+    g_connected_to_server = 0;
+    int timeout = 0;
+    while (!g_connected_to_server && timeout < 200) {  // 2 secondes max
+        usleep(10000);  // 10ms
+        timeout++;
+    }
+
+    if (!g_connected_to_server) {
+        fprintf(stderr, "\n%sErreur : Serveur injoignable%s\n", COLOR_RED, COLOR_RESET);
+        fprintf(stderr, "Vérifiez que le serveur est démarré à l'adresse %s:%d\n\n", server_ip, server_port);
+        g_running = 0;
+        close(g_sockfd);
+        return EXIT_FAILURE;
+    }
+
+    printf("%sConnecté au serveur!%s Tapez /help pour l'aide.\n\n", COLOR_GREEN, COLOR_RESET);
     
     // Boucle principale d'entrée
     char input[MAX_MESSAGE];
