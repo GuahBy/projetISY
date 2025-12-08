@@ -1,0 +1,107 @@
+@startuml sequence_promote_admin
+!theme plain
+
+actor "Administrateur" as Admin
+participant "Client Admin" as ClientA
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Client Promu" as ClientP
+actor "Nouvel Admin" as UserP
+
+Admin -> ClientA: /promote username
+
+ClientA -> ClientA: Vérifier groupe actuel
+
+ClientA -> Socket: Créer Message\n(MSG_PROMOTE_ADMIN,\nrecipient=username)
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> SHM: group_find(groupe)
+
+SHM --> Server: Group* groupe
+
+Server -> Server: group_is_admin()\nVérifier si admin
+
+alt Utilisateur est admin du groupe
+
+    Server -> SHM: user_find(username)
+
+    SHM --> Server: User* target
+
+    alt Utilisateur cible existe et dans le groupe
+
+        Server -> Server: group_is_admin(target)\nVérifier si déjà admin
+
+        alt Pas encore admin
+
+            Server -> SHM: group_add_admin()\nAjouter aux admins
+
+            Server -> Socket: Créer notification\n"Vous êtes admin"
+
+            Server -> Socket: sendto(notification,\nadresse nouvel admin)
+
+            Socket -> ClientP: Message UDP
+
+            ClientP -> ClientP: Afficher notification\nde promotion
+
+            ClientP -> UserP: "Vous avez été promu\nadministrateur par Admin"
+
+            Server -> Socket: Créer notification groupe\n"username est admin"
+
+            loop Pour chaque membre du groupe
+                Server -> Socket: sendto(notification,\nadresse membre)
+            end
+
+            Server --> ClientA: (Confirmation implicite)
+
+            Server -> Server: log_event()\n"PROMOTE: username by Admin"
+
+        else Déjà administrateur
+            Server --> ClientA: Erreur:\nDéjà administrateur
+        end
+
+    else Utilisateur non trouvé ou pas dans le groupe
+        Server --> ClientA: Erreur:\nUtilisateur non trouvé
+    end
+
+else Utilisateur n'est pas admin
+    Server --> ClientA: Erreur:\nDroits insuffisants
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+note right of Server
+  Seul un administrateur du groupe
+  peut promouvoir un utilisateur.
+  Le créateur du groupe devient
+  automatiquement admin.
+end note
+
+note right of ClientP
+  L'utilisateur promu reçoit
+  une notification et obtient
+  les droits d'administration
+  du groupe.
+end note
+
+note left of Admin
+  Les droits admin incluent:
+  - Exclure des utilisateurs
+  - Promouvoir d'autres admins
+  - Fusionner des groupes
+  - Changer la couleur du groupe
+end note
+
+@enduml
