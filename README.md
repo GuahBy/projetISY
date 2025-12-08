@@ -188,10 +188,7 @@ Bonjour tout le monde !
 #### 2. Créer et gérer des groupes
 
 ```bash
-# Bob crée un nouveau groupe "projet"
-/create projet
-
-# Bob rejoint le groupe qu'il vient de créer
+# Bob crée et rejoint le groupe qu'il vient de créer
 /join projet
 
 # Charlie fusionne deux groupes
