@@ -1,0 +1,92 @@
+@startuml use_case_diagram
+!theme plain
+left to right direction
+skinparam packageStyle rectangle
+
+actor "Utilisateur" as User
+actor "Administrateur" as Admin
+actor "Serveur" as Server
+
+' L'Admin hérite de tous les droits Utilisateur
+Admin --|> User
+
+rectangle "Système de Messagerie" {
+    usecase "Se connecter" as UC1
+    usecase "Envoyer message public" as UC2
+    usecase "Envoyer message privé" as UC3
+    usecase "Rejoindre un groupe" as UC4
+    usecase "Quitter un groupe" as UC5
+    usecase "Créer un groupe" as UC6
+    usecase "Lister les utilisateurs" as UC8
+    usecase "Lister les groupes" as UC9
+    usecase "Changer la couleur du prompt" as UC10
+    usecase "Se déconnecter" as UC11
+    
+    ' Cas d'usage spécifiques à l'admin
+    usecase "Fusionner des groupes" as UC7
+    usecase "Exclure un utilisateur" as UC12
+    usecase "Promouvoir un administrateur" as UC13
+    usecase "Rétrograder un administrateur" as UC14A
+
+    ' Cas d'usage du serveur
+    usecase "Gérer la mémoire partagée" as UC14
+    usecase "Synchroniser l'accès" as UC15
+    usecase "Router les messages" as UC16
+    usecase "Logger les événements" as UC17
+}
+
+' Relations Utilisateur
+User --> UC1
+User --> UC2
+User --> UC3
+User --> UC4
+User --> UC5
+User --> UC6
+User --> UC8
+User --> UC9
+User --> UC10
+User --> UC11
+
+' Relations Admin (seulement les spécifiques)
+Admin --> UC7
+Admin --> UC12
+Admin --> UC13
+Admin --> UC14A
+
+' Relations Serveur
+Server --> UC14
+Server --> UC15
+Server --> UC16
+Server --> UC17
+
+' Dépendances entre cas d'usage
+UC2 ..> UC4 : <<requires>>
+UC7 ..> UC6 : <<requires>>
+UC12 ..> UC4 : <<requires>>
+UC13 ..> UC4 : <<requires>>
+UC14A ..> UC4 : <<requires>>
+UC16 ..> UC15 : <<uses>>
+UC17 ..> UC15 : <<uses>>
+
+note right of UC7
+  Fusionne deux groupes
+  en un seul
+end note
+
+note right of UC12
+  Exclure un utilisateur
+  d'un groupe
+end note
+
+note right of UC13
+  Promouvoir un utilisateur
+  en administrateur
+end note
+
+note right of UC14A
+  Rétrograder un administrateur
+  en simple membre
+  (garde au moins 1 admin)
+end note
+
+@enduml

@@ -1,0 +1,77 @@
+@startuml architecture_diagram
+!theme plain
+
+package "Serveur de Messagerie" {
+    component [Serveur Principal] as Server
+    database "Mémoire Partagée\n(SHM)" as SHM
+    component [Sémaphore] as Sem
+    
+    Server -down-> SHM : Lit/Écrit
+    Server -down-> Sem : Synchronise
+    Sem -right-> SHM : Protège
+}
+
+note right of SHM
+  Stocke:
+  - Liste des utilisateurs actifs
+  - Liste des groupes
+  - Membres de chaque groupe
+end note
+
+note left of Sem
+  Garantit l'exclusion mutuelle
+  pour l'accès à la SHM
+end note
+
+cloud "Réseau UDP" as Network {
+    interface "Port 8000" as Port
+}
+
+note right of Network
+  Communication asynchrone
+  via socket UDP (SOCK_DGRAM)
+end note
+
+Server <-right-> Port : Écoute/Envoie
+
+package "Client 1" {
+    component [Thread Principal 1] as MT1
+    component [Thread Réception 1] as RT1
+    component [Interface Utilisateur 1] as UI1
+    
+    MT1 -down-> RT1
+    RT1 -down-> UI1 : Affiche messages
+}
+
+note left of MT1
+  Chaque client a un thread
+  dédié à la réception des
+  messages du serveur
+end note
+
+package "Client 2" {
+    component [Thread Principal 2] as MT2
+    component [Thread Réception 2] as RT2
+    component [Interface Utilisateur 2] as UI2
+    
+    MT2 -down-> RT2
+    RT2 -down-> UI2 : Affiche messages
+}
+
+package "Client N" {
+    component [Thread Principal N] as MTN
+    component [Thread Réception N] as RTN
+    component [Interface Utilisateur N] as UIN
+    
+    MTN -down-> RTN
+    RTN -down-> UIN : Affiche messages
+}
+
+MT1 -up-> Network : Envoie
+RT1 <-up- Network : Reçoit
+MT2 -up-> Network : Envoie
+RT2 <-up- Network : Reçoit
+MTN -up-> Network : Envoie
+RTN <-up- Network : Reçoit
+
+@enduml

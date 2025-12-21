@@ -1,0 +1,87 @@
+@startuml sequence_change_color
+!theme plain
+
+actor "Utilisateur" as User
+participant "Client" as Client
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Autres\nClients" as Others
+
+User -> Client: /color blue
+
+Client -> Client: Vérifier groupe actuel
+
+Client -> Client: Valider la couleur\n(red, green, yellow,\nblue, magenta, cyan, white)
+
+alt Couleur valide
+
+    Client -> Socket: Créer Message\n(MSG_CHANGE_COLOR,\ncontent=couleur)
+
+    Socket -> Server: sendto(Message)
+
+    activate Server
+
+    Server -> Sem: sem_p()\nVerrouiller
+
+    Sem --> Server: OK
+
+    Server -> SHM: group_find(groupe)
+
+    SHM --> Server: Group* groupe
+
+    Server -> SHM: Mettre à jour\ngroupe->color
+
+    Server -> Socket: Créer notification\n"Couleur changée"
+
+    loop Pour chaque utilisateur du groupe
+        Server -> SHM: Mettre à jour\nuser->color
+
+        Server -> Socket: sendto(notification,\nadresse utilisateur)
+
+        Socket -> Others: Message UDP
+
+        Others -> Others: Mettre à jour\nuser_color local
+
+        Others -> Others: Afficher notification\navec nouvelle couleur
+    end
+
+    Server -> Sem: sem_v()\nDéverrouiller
+
+    Sem --> Server: OK
+
+    deactivate Server
+
+    Client -> Client: Mettre à jour\nuser_color local
+
+    Client -> User: [Système] Couleur\nchangée en blue
+
+    Client -> Client: Afficher prompt\navec nouvelle couleur
+
+else Couleur invalide
+    Client --> User: Erreur:\nCouleur non reconnue
+end
+
+note right of Server
+  Le changement de couleur
+  est propagé à tous les
+  membres du groupe.
+  La couleur est stockée
+  au niveau du groupe.
+end note
+
+note right of Others
+  Tous les clients du groupe
+  reçoivent la mise à jour
+  et appliquent la nouvelle
+  couleur à leur prompt.
+end note
+
+note left of Client
+  Couleurs disponibles:
+  red, green, yellow,
+  blue, magenta, cyan, white
+end note
+
+@enduml

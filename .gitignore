@@ -1,0 +1,13 @@
+# Binaires compilés
+server
+client
+
+# Fichiers objets
+*.o
+
+# Fichiers de clés IPC
+shm_key.txt
+sem_key.txt
+
+# Logs
+*.log

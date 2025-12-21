@@ -1,0 +1,63 @@
+@startuml sequence_private_message
+!theme plain
+
+actor "Utilisateur A" as UserA
+participant "Client A" as ClientA
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Client B" as ClientB
+actor "Utilisateur B" as UserB
+
+UserA -> ClientA: /msg Bob Hello!
+
+ClientA -> ClientA: Parser commande
+
+ClientA -> Socket: Créer Message\n(MSG_PRIVATE,\nrecipient="Bob")
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> SHM: user_find("Bob")
+
+SHM --> Server: User* Bob
+
+alt Utilisateur trouvé et actif
+    Server -> Socket: sendto(Message,\nadresse Bob)
+    
+    Socket -> ClientB: Message UDP
+    
+    ClientB -> ClientB: Afficher message privé\navec couleur magenta
+    
+    ClientB -> UserB: [PRIVÉ de Alice]: Hello!
+    
+    Server --> ClientA: (Confirmation implicite)
+else Utilisateur non trouvé ou inactif
+    Server --> ClientA: Erreur:\nUtilisateur non trouvé
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+note right of ClientA
+  Le client affiche aussi
+  localement le message privé
+  envoyé pour confirmation
+end note
+
+note right of Server
+  Le serveur vérifie que
+  le destinataire existe
+  avant d'envoyer
+end note
+
+@enduml

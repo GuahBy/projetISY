@@ -1,0 +1,121 @@
+@startuml sequence_demote_admin
+!theme plain
+
+actor "Administrateur" as Admin
+participant "Client Admin" as ClientA
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Client Rétrogradé" as ClientD
+actor "Ex-Admin" as UserD
+
+Admin -> ClientA: /demote username
+
+ClientA -> ClientA: Vérifier groupe actuel
+
+ClientA -> Socket: Créer Message\n(MSG_DEMOTE_ADMIN,\nrecipient=username)
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> SHM: group_find(groupe)
+
+SHM --> Server: Group* groupe
+
+Server -> Server: group_is_admin()\nVérifier si admin
+
+alt Utilisateur est admin du groupe
+
+    Server -> Server: Vérifier que username\n≠ sender (pas d'auto-rétrogradation)
+
+    alt Utilisateur différent de l'expéditeur
+
+        Server -> SHM: user_find(username)
+
+        SHM --> Server: User* target
+
+        alt Utilisateur cible existe
+
+            Server -> Server: group_is_admin(target)\nVérifier si cible est admin
+
+            alt Est administrateur
+
+                Server -> Server: Vérifier admin_count > 1\n(garder au moins 1 admin)
+
+                alt Plus d'un administrateur
+
+                    Server -> SHM: group_remove_admin()\nRetirer des admins
+
+                    Server -> Socket: Créer notification\n"Vous n'êtes plus admin"
+
+                    Server -> Socket: sendto(notification,\nadresse ex-admin)
+
+                    Socket -> ClientD: Message UDP
+
+                    ClientD -> ClientD: Afficher notification\nde rétrogradation
+
+                    ClientD -> UserD: "Vous avez été rétrogradé\npar Admin"
+
+                    Server -> Socket: Créer notification groupe\n"username n'est plus admin"
+
+                    loop Pour chaque membre du groupe
+                        Server -> Socket: sendto(notification,\nadresse membre)
+                    end
+
+                    Server --> ClientA: (Confirmation implicite)
+
+                    Server -> Server: log_event()\n"DEMOTE: username by Admin"
+
+                else Dernier administrateur
+                    Server --> ClientA: Erreur:\nDernier administrateur
+                end
+
+            else Pas administrateur
+                Server --> ClientA: Erreur:\nPas administrateur
+            end
+
+        else Utilisateur non trouvé
+            Server --> ClientA: Erreur:\nUtilisateur non trouvé
+        end
+
+    else Auto-rétrogradation
+        Server --> ClientA: Erreur:\nAuto-rétrogradation interdite
+    end
+
+else Utilisateur n'est pas admin
+    Server --> ClientA: Erreur:\nDroits insuffisants
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+note right of Server
+  Seul un administrateur du groupe
+  peut rétrograder un autre admin.
+  On ne peut pas rétrograder le
+  dernier administrateur du groupe.
+end note
+
+note right of ClientD
+  L'utilisateur rétrogradé perd
+  les droits d'administration
+  mais reste membre du groupe.
+end note
+
+note left of Admin
+  Restrictions:
+  - Ne peut pas se rétrograder soi-même
+  - Ne peut pas rétrograder le dernier admin
+  - Doit être admin pour rétrograder
+end note
+
+@enduml

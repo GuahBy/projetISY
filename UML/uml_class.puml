@@ -1,0 +1,196 @@
+@startuml class_diagram
+!theme toy
+skinparam classAttributeIconSize 0
+skinparam linetype ortho
+skinparam nodesep 80
+skinparam ranksep 80
+
+' Couleurs par catégorie
+skinparam class {
+    BackgroundColor<<data>> LightBlue
+    BorderColor<<data>> DarkBlue
+    BackgroundColor<<sync>> LightGreen
+    BorderColor<<sync>> DarkGreen
+    BackgroundColor<<comm>> LightYellow
+    BorderColor<<comm>> Orange
+    BackgroundColor<<app>> LightPink
+    BorderColor<<app>> DarkRed
+}
+
+enum MessageType {
+    MSG_PUBLIC
+    MSG_PRIVATE
+    MSG_JOIN
+    MSG_LEAVE
+    MSG_LIST_USERS
+    MSG_LIST_GROUPS
+    MSG_CREATE_GROUP
+    MSG_MERGE_GROUPS
+    MSG_CHANGE_COLOR
+    MSG_DISCONNECT
+    MSG_KICK_USER
+    MSG_PROMOTE_ADMIN
+    MSG_DEMOTE_ADMIN
+    MSG_LIST_USERS_RESPONSE
+    MSG_LIST_GROUPS_RESPONSE
+    MSG_CONNECT
+    MSG_CONNECT_ACK
+}
+
+class Message <<comm>> {
+    - type: MessageType
+    - sender[MAX_USERNAME]: char
+    - recipient[MAX_USERNAME]: char
+    - group[MAX_GROUP_NAME]: char
+    - content[MAX_MESSAGE]: char
+    - timestamp: time_t
+    ====
+    + message_create()
+    + message_display()
+    + message_send_to_group()
+    + message_send_private()
+}
+
+class User <<data>> {
+    - username[MAX_USERNAME]: char
+    - current_group[MAX_GROUP_NAME]: char
+    - addr: sockaddr_in
+    - port: int
+    - active: int
+    - color[16]: char
+    - last_activity: time_t
+    ====
+    + user_add()
+    + user_remove()
+    + user_find()
+    + user_set_color()
+}
+
+class Group <<data>> {
+    - name[MAX_GROUP_NAME]: char
+    - user_count: int
+    - users[MAX_CLIENTS][MAX_USERNAME]: char
+    - admin_count: int
+    - admins[MAX_CLIENTS][MAX_USERNAME]: char
+    - color[16]: char
+    - active: int
+    ====
+    + group_create()
+    + group_add_user()
+    + group_remove_user()
+    + group_find()
+    + group_merge()
+    + group_is_admin()
+    + group_add_admin()
+    + group_remove_admin()
+    + group_kick_user()
+}
+
+class SharedMemory <<data>> {
+    - users[MAX_CLIENTS]: User
+    - groups[MAX_GROUPS]: Group
+    - user_count: int
+    - group_count: int
+    ====
+    + shm_create()
+    + shm_attach()
+    + shm_detach()
+    + shm_destroy()
+}
+
+class Semaphore <<sync>> {
+    - semid: int
+    - value: int
+    ====
+    + sem_create()
+    + sem_init()
+    + sem_p()
+    + sem_v()
+    + sem_destroy()
+}
+
+class Socket <<comm>> {
+    - sockfd: int
+    - addr: sockaddr_in
+    - port: int
+    ====
+    + socket_create_udp()
+    + socket_bind_udp()
+    + socket_send()
+    + socket_receive()
+}
+
+class Server <<app>> {
+    - shm: SharedMemory*
+    - semid: int
+    - sockfd: int
+    - logfile: FILE*
+    ====
+    + main()
+    + handle_client_message()
+    + cleanup_and_exit()
+    + log_event()
+}
+
+class Client <<app>> {
+    - sockfd: int
+    - username[MAX_USERNAME]: char
+    - current_group[MAX_GROUP_NAME]: char
+    - user_color[16]: char
+    - server_addr: sockaddr_in
+    ====
+    + main()
+    + receive_thread()
+    + process_command()
+    + cleanup_and_exit()
+}
+
+' Relations
+SharedMemory "1" *-- "0..MAX_CLIENTS" User
+SharedMemory "1" *-- "0..MAX_GROUPS" Group
+Group "1" o-- "0..MAX_CLIENTS" User : contient
+
+Message ..> User : sender/recipient
+Message ..> Group : groupe
+Message .up.> MessageType : utilise
+
+Server ..> SharedMemory : utilise
+Server ..> Semaphore : utilise
+Server ..> Socket : utilise
+Server ..> Message : traite
+
+Client ..> Socket : utilise
+Client ..> Message : envoie/reçoit
+Client ..> SharedMemory : lit
+
+Semaphore ..> SharedMemory : protège
+
+' Notes avec style
+note right of SharedMemory #LightBlue
+  **Zone de mémoire partagée**
+  Entre le serveur et les clients
+  pour stocker l'état global
+end note
+
+note right of Semaphore #LightGreen
+  **Synchronisation**
+  Contrôle l'accès concurrent
+  à la mémoire partagée
+  (opérations P et V)
+end note
+
+note left of Message #LightYellow
+  **Structure de communication**
+  Format unifié pour tous
+  les types de messages
+end note
+
+note as Legend
+  <b>Légende</b>
+  Bleu  </> Données
+  Vert  </> Synchronisation
+  Jaune </> Communication
+  Rouge </> Application
+end note
+
+@enduml

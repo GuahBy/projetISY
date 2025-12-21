@@ -1,0 +1,84 @@
+@startuml sequence_merge_groups
+!theme plain
+
+actor "Administrateur" as Admin
+participant "Client" as Client
+participant "Socket UDP" as Socket
+participant "Serveur" as Server
+participant "Sémaphore" as Sem
+participant "Mémoire\nPartagée" as SHM
+participant "Groupe A" as GroupA
+participant "Groupe B" as GroupB
+participant "Clients\nGroupes" as Others
+
+Admin -> Client: /merge GroupA GroupB
+
+Client -> Client: Parser commande
+
+Client -> Socket: Créer Message\n(MSG_MERGE_GROUPS,\ncontent="GroupA:GroupB")
+
+Socket -> Server: sendto(Message)
+
+activate Server
+
+Server -> Sem: sem_p()\nVerrouiller
+
+Sem --> Server: OK
+
+Server -> Server: Parser "GroupA:GroupB"
+
+Server -> SHM: group_find("GroupA")
+
+SHM --> Server: Group* GroupA
+
+Server -> SHM: group_find("GroupB")
+
+SHM --> Server: Group* GroupB
+
+alt Les deux groupes existent
+
+    loop Pour chaque utilisateur de GroupB
+        Server -> SHM: Vérifier si déjà\ndans GroupA
+        
+        alt Pas encore dans GroupA
+            Server -> GroupA: Ajouter utilisateur
+            Server -> SHM: Mettre à jour\ncurrent_group
+        end
+    end
+    
+    Server -> GroupB: Désactiver groupe\n(active = 0)
+    
+    Server -> Socket: Créer notification\n"Groupes fusionnés"
+    
+    loop Pour chaque membre de GroupA (nouveau)
+        Server -> Socket: sendto(notification,\nadresse membre)
+        Socket -> Others: Message UDP
+    end
+    
+    Others -> Others: Afficher notification
+    
+    Server --> Client: (Confirmation implicite)
+
+else Un ou les deux groupes n'existent pas
+    Server --> Client: Erreur:\nGroupe non trouvé
+end
+
+Server -> Sem: sem_v()\nDéverrouiller
+
+Sem --> Server: OK
+
+deactivate Server
+
+note right of Server
+  Tous les membres de GroupB
+  sont transférés vers GroupA.
+  GroupB est ensuite désactivé.
+end note
+
+note right of GroupA
+  GroupA contient maintenant
+  tous les membres de A et B
+  (sans doublons)
+end note
+
+@enduml
